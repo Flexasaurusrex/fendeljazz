@@ -157,16 +157,22 @@ const JazzRadioPlayer: React.FC = () => {
     setUploadProgress(0);
 
     try {
+      // Simulate progress for user feedback
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev < 90) return prev + 10;
+          return prev;
+        });
+      }, 200);
+
       // Upload directly to Vercel Blob
       const blob = await upload(filename, file, {
         access: 'public',
-        handleUploadUrl: '/api/upload-url',
-        onUploadProgress: (progress) => {
-          const percentage = Math.round((progress.loaded / progress.total) * 100);
-          setUploadProgress(percentage);
-          console.log(`Upload progress: ${percentage}%`);
-        }
+        handleUploadUrl: '/api/upload-url'
       });
+
+      clearInterval(progressInterval);
+      setUploadProgress(100);
 
       console.log('Upload completed successfully:', blob.url);
       return blob.url;
@@ -175,7 +181,7 @@ const JazzRadioPlayer: React.FC = () => {
       throw new Error(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
-      setUploadProgress(0);
+      setTimeout(() => setUploadProgress(0), 1000); // Reset progress after a delay
     }
   };
 
