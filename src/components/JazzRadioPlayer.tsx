@@ -334,7 +334,7 @@ const JazzRadioPlayer: React.FC = () => {
       }
     } catch (error) {
       console.error('Error deleting recording:', error);
-      alert('Failed to delete recording: ' + error.message);
+      alert('Failed to delete recording: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -412,7 +412,7 @@ const JazzRadioPlayer: React.FC = () => {
         alert('All recordings deleted successfully!');
       } catch (error) {
         console.error('Error clearing recordings:', error);
-        alert('Failed to clear all recordings: ' + error.message);
+        alert('Failed to clear all recordings: ' + (error instanceof Error ? error.message : 'Unknown error'));
       }
     }
   };
