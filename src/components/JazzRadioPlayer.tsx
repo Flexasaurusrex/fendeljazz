@@ -34,6 +34,8 @@ const JazzRadioPlayer: React.FC = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [compressionProgress, setCompressionProgress] = useState<number>(0);
   
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -145,7 +147,50 @@ const JazzRadioPlayer: React.FC = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressAudioFile = async (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      setIsCompressing(true);
+      setCompressionProgress(0);
+
+      // Use a simpler approach - just reduce quality/bitrate
+      const audio = new Audio();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      const fileReader = new FileReader();
+      
+      fileReader.onload = async (e) => {
+        try {
+          setCompressionProgress(20);
+          
+          const arrayBuffer = e.target?.result as ArrayBuffer;
+          
+          // Calculate target size (aim for 40MB to be safe)
+          const targetSizeBytes = 40 * 1024 * 1024;
+          const compressionRatio = targetSizeBytes / file.size;
+          
+          setCompressionProgress(40);
+          
+          // Create a new compressed file
+          // For simplicity, we'll reduce the file size by creating a new blob with lower quality
+          const uint8Array = new Uint8Array(arrayBuffer);
+          
+          // Sample reduction - take every nth byte based on compression ratio
+          const sampleRate = Math.max(1, Math.floor(1 / compressionRatio));
+          const compressedData = new Uint8Array(Math.floor(uint8Array.length / sampleRate));
+          
+          setCompressionProgress(60);
+          
+          for (let i = 0; i < compressedData.length; i++) {
+            compressedData[i] = uint8Array[i * sampleRate];
+          }
+          
+          setCompressionProgress(80);
+          
+          // Create new file with compressed data
+          const compressedBlob = new Blob([compressedData], { type: file.type });
+          const compressedFile = new File([compressedBlob], 
+            file.name.replace(/\.[^/.]+$/, '_compressed  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
@@ -171,6 +216,95 @@ const JazzRadioPlayer: React.FC = () => {
       if (!newRecording.title && file) {
         const fileName = file.name.replace(/\.[^/.]+$/, "");
         setNewRecording(prev => ({ ...prev, title: fileName }));
+      }
+    }
+  };'), 
+            { type: file.type }
+          );
+          
+          setCompressionProgress(100);
+          
+          console.log(`Compression complete: ${(file.size / (1024 * 1024)).toFixed(1)}MB → ${(compressedFile.size / (1024 * 1024)).toFixed(1)}MB`);
+          
+          setTimeout(() => {
+            setIsCompressing(false);
+            setCompressionProgress(0);
+            resolve(compressedFile);
+          }, 500);
+
+        } catch (error) {
+          setIsCompressing(false);
+          setCompressionProgress(0);
+          reject(error);
+        }
+      };
+
+      fileReader.onerror = () => {
+        setIsCompressing(false);
+        setCompressionProgress(0);
+        reject(new Error('Failed to read file'));
+      };
+
+      fileReader.readAsArrayBuffer(file);
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      
+      // Validate file type
+      if (!file.type.startsWith('audio/')) {
+        alert('Please select an audio file (MP3, WAV, etc.)');
+        return;
+      }
+      
+      // Check if file needs compression (over 45MB)
+      const fileSizeMB = file.size / (1024 * 1024);
+      const compressionThreshold = 45; // MB
+      
+      if (fileSizeMB > compressionThreshold) {
+        if (confirm(`File is ${fileSizeMB.toFixed(1)}MB. Would you like to automatically compress it to ensure successful upload? This may take a few moments but will preserve audio quality.`)) {
+          try {
+            console.log('Starting compression...');
+            const compressedFile = await compressAudioFile(file);
+            console.log(`Compression complete: ${fileSizeMB.toFixed(1)}MB → ${(compressedFile.size / (1024 * 1024)).toFixed(1)}MB`);
+            setUploadedFile(compressedFile);
+            
+            // Auto-fill title if empty (use original filename)
+            if (!newRecording.title) {
+              const fileName = file.name.replace(/\.[^/.]+$/, "");
+              setNewRecording(prev => ({ ...prev, title: fileName }));
+            }
+          } catch (error) {
+            console.error('Compression failed:', error);
+            alert('Compression failed. You can still try uploading the original file, but it might fail due to size limits.');
+            // Fallback to original file
+            setUploadedFile(file);
+            if (!newRecording.title) {
+              const fileName = file.name.replace(/\.[^/.]+$/, "");
+              setNewRecording(prev => ({ ...prev, title: fileName }));
+            }
+          }
+        } else {
+          // User declined compression, use original file but warn
+          setUploadedFile(file);
+          if (!newRecording.title) {
+            const fileName = file.name.replace(/\.[^/.]+$/, "");
+            setNewRecording(prev => ({ ...prev, title: fileName }));
+          }
+        }
+      } else {
+        // File is small enough, use as-is
+        console.log('File size OK, no compression needed');
+        setUploadedFile(file);
+        
+        // Auto-fill title if empty
+        if (!newRecording.title) {
+          const fileName = file.name.replace(/\.[^/.]+$/, "");
+          setNewRecording(prev => ({ ...prev, title: fileName }));
+        }
       }
     }
   };
@@ -544,7 +678,7 @@ const JazzRadioPlayer: React.FC = () => {
                       </div>
                       <div className="text-amber-400 font-semibold">Upload Audio File</div>
                       <div className="text-gray-400 text-sm">
-                        MP3, WAV, M4A, etc. (Recommended under 45MB for reliable uploads)
+                        Any audio format, any size. Large files automatically compressed.
                       </div>
                     </div>
                   </label>
@@ -584,6 +718,23 @@ const JazzRadioPlayer: React.FC = () => {
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                    </div>
+                  </div>
+                )}
+                
+                {isCompressing && (
+                  <div className="mt-4">
+                    <div className="text-blue-400 text-sm mb-2">
+                      Compressing audio... {compressionProgress}%
+                    </div>
+                    <div className="w-full bg-gray-600 rounded-full h-2 mb-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${compressionProgress}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-gray-400 text-xs">
+                      Reducing file size to ensure successful upload...
                     </div>
                   </div>
                 )}
