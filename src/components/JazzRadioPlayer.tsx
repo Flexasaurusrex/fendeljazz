@@ -142,15 +142,27 @@ const JazzRadioPlayer: React.FC = () => {
   };
 
   const addRecording = () => {
-    if (newRecording.title && newRecording.url) {
-      const recording: Recording = {
-        ...newRecording,
-        id: Date.now(),
-        date: newRecording.date || new Date().toLocaleDateString()
-      };
-      setRecordings([...recordings, recording]);
-      setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+    // More flexible validation - only require title
+    if (!newRecording.title.trim()) {
+      alert('Please enter a recording title');
+      return;
     }
+
+    const recording: Recording = {
+      ...newRecording,
+      id: Date.now(),
+      title: newRecording.title.trim(),
+      description: newRecording.description.trim(),
+      date: newRecording.date.trim() || new Date().toLocaleDateString(),
+      duration: newRecording.duration.trim() || 'Unknown',
+      url: newRecording.url.trim() || 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' // Default test audio
+    };
+    
+    setRecordings([...recordings, recording]);
+    setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+    
+    // Provide feedback
+    alert('Recording added successfully!');
   };
 
   const deleteRecording = (id: number) => {
@@ -260,40 +272,44 @@ const JazzRadioPlayer: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <input
                 type="text"
-                placeholder="Recording Title"
+                placeholder="Recording Title *"
                 value={newRecording.title}
                 onChange={(e) => setNewRecording({...newRecording, title: e.target.value})}
                 className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
+                required
               />
               <input
                 type="text"
-                placeholder="Date (e.g., August 4, 2025)"
+                placeholder="Date (optional - auto-filled if empty)"
                 value={newRecording.date}
                 onChange={(e) => setNewRecording({...newRecording, date: e.target.value})}
                 className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
               />
               <input
                 type="text"
-                placeholder="Duration (e.g., 52:14)"
+                placeholder="Duration (optional)"
                 value={newRecording.duration}
                 onChange={(e) => setNewRecording({...newRecording, duration: e.target.value})}
                 className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
               />
               <input
                 type="url"
-                placeholder="Audio URL"
+                placeholder="Audio URL (optional - test audio if empty)"
                 value={newRecording.url}
                 onChange={(e) => setNewRecording({...newRecording, url: e.target.value})}
                 className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
               />
             </div>
             <textarea
-              placeholder="Description"
+              placeholder="Description (optional)"
               value={newRecording.description}
               onChange={(e) => setNewRecording({...newRecording, description: e.target.value})}
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none mb-4"
               rows={3}
             />
+            <div className="mb-4 text-sm text-gray-400">
+              <p>* Only title is required. Other fields will be auto-filled with defaults if left empty.</p>
+            </div>
             <div className="flex space-x-4">
               {editingId ? (
                 <>
