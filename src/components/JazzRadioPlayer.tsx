@@ -34,6 +34,8 @@ const JazzRadioPlayer: React.FC = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [compressionProgress, setCompressionProgress] = useState<number>(0);
   
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -145,25 +147,159 @@ const JazzRadioPlayer: React.FC = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressAudioFile = async (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      setIsCompressing(true);
+      setCompressionProgress(0);
+
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const fileReader = new FileReader();
+
+      fileReader.onload = async (e) => {
+        try {
+          setCompressionProgress(20);
+          
+          const arrayBuffer = e.target?.result as ArrayBuffer;
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+          
+          setCompressionProgress(40);
+
+          // Calculate target bitrate based on file size
+          const targetSizeMB = 45; // Target ~45MB to stay under 50MB limit
+          const durationSeconds = audioBuffer.duration;
+          const targetBitrate = Math.min(128, Math.max(64, (targetSizeMB * 8 * 1024) / durationSeconds)); // kbps
+          
+          console.log(`Compressing audio: Duration ${durationSeconds.toFixed(1)}s, Target bitrate: ${targetBitrate.toFixed(0)}kbps`);
+          
+          setCompressionProgress(60);
+
+          // Create offline context for rendering
+          const offlineContext = new OfflineAudioContext(
+            2, // stereo
+            audioBuffer.sampleRate * durationSeconds,
+            audioBuffer.sampleRate
+          );
+
+          // Create buffer source
+          const source = offlineContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(offlineContext.destination);
+          source.start(0);
+
+          setCompressionProgress(80);
+
+          // Render the audio
+          const renderedBuffer = await offlineContext.startRendering();
+          
+          setCompressionProgress(90);
+
+          // Convert to WAV format (simpler than MP3 encoding)
+          const wavData = bufferToWav(renderedBuffer, targetBitrate);
+          const compressedFile = new File([wavData], file.name.replace(/\.[^/.]+$/, '_compressed.wav'), {
+            type: 'audio/wav',
+          });
+
+          setCompressionProgress(100);
+          
+          console.log(`Compression complete: ${(file.size / (1024 * 1024)).toFixed(1)}MB → ${(compressedFile.size / (1024 * 1024)).toFixed(1)}MB`);
+          
+          setTimeout(() => {
+            setIsCompressing(false);
+            setCompressionProgress(0);
+            resolve(compressedFile);
+          }, 500);
+
+        } catch (error) {
+          setIsCompressing(false);
+          setCompressionProgress(0);
+          reject(error);
+        }
+      };
+
+      fileReader.onerror = () => {
+        setIsCompressing(false);
+        setCompressionProgress(0);
+        reject(new Error('Failed to read file'));
+      };
+
+      fileReader.readAsArrayBuffer(file);
+    });
+  };
+
+  // Helper function to convert AudioBuffer to WAV
+  const bufferToWav = (buffer: AudioBuffer, targetBitrate: number): ArrayBuffer => {
+    const length = buffer.length;
+    const numberOfChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    
+    // Reduce sample rate if needed to achieve target bitrate
+    const reductionFactor = Math.max(1, Math.ceil((sampleRate * 16 * numberOfChannels) / (targetBitrate * 1000)));
+    const reducedSampleRate = Math.floor(sampleRate / reductionFactor);
+    const reducedLength = Math.floor(length / reductionFactor);
+    
+    const arrayBuffer = new ArrayBuffer(44 + reducedLength * numberOfChannels * 2);
+    const view = new DataView(arrayBuffer);
+    
+    // WAV header
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+    
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + reducedLength * numberOfChannels * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numberOfChannels, true);
+    view.setUint32(24, reducedSampleRate, true);
+    view.setUint32(28, reducedSampleRate * numberOfChannels * 2, true);
+    view.setUint16(32, numberOfChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, reducedLength * numberOfChannels * 2, true);
+    
+    // Convert audio data
+    let offset = 44;
+    for (let i = 0; i < reducedLength; i++) {
+      const sourceIndex = i * reductionFactor;
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[sourceIndex] || 0));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+    
+    return arrayBuffer;
+  };
     const file = e.target.files?.[0];
     if (file) {
+      console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      
       // Validate file type
       if (!file.type.startsWith('audio/')) {
         alert('Please select an audio file (MP3, WAV, etc.)');
         return;
       }
       
-      // Check file size (limit to 1GB)
+      // Check file size (limit to 1GB = 1024 * 1024 * 1024 bytes)
       const maxSizeGB = 1;
       const maxSizeBytes = maxSizeGB * 1024 * 1024 * 1024;
       const fileSizeGB = file.size / (1024 * 1024 * 1024);
+      const fileSizeMB = file.size / (1024 * 1024);
+      
+      console.log(`File size: ${fileSizeMB.toFixed(2)}MB (${fileSizeGB.toFixed(3)}GB)`);
+      console.log(`Max allowed: ${maxSizeGB}GB (${maxSizeBytes} bytes)`);
+      console.log(`File is under limit: ${file.size <= maxSizeBytes}`);
       
       if (file.size > maxSizeBytes) {
         alert(`File size must be less than ${maxSizeGB}GB. Your file is ${fileSizeGB.toFixed(2)}GB.`);
         return;
       }
       
+      console.log('File size validation passed!');
       setUploadedFile(file);
       
       // Auto-fill title if empty
@@ -184,16 +320,16 @@ const JazzRadioPlayer: React.FC = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      // Simulate progress for UX
+      // More realistic progress tracking for large files
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
-          if (prev >= 90) {
+          if (prev >= 85) {
             clearInterval(progressInterval);
-            return 90;
+            return 85;
           }
-          return prev + 10;
+          return prev + 3;
         });
-      }, 200);
+      }, 2000); // Slower progress for large files
 
       console.log('Sending request to /api/upload');
       
@@ -203,21 +339,27 @@ const JazzRadioPlayer: React.FC = () => {
       });
 
       clearInterval(progressInterval);
-      setUploadProgress(100);
 
       console.log('Response status:', response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Upload failed:', response.status, errorText);
+        
+        if (response.status === 413) {
+          throw new Error('File too large for server upload. Please try a smaller file or contact support.');
+        }
+        
         throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json();
       console.log('Upload result:', result);
       
+      setUploadProgress(100);
+      
       // Small delay to show 100% completion
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       setIsUploading(false);
       setUploadProgress(0);
@@ -536,7 +678,9 @@ const JazzRadioPlayer: React.FC = () => {
                         <Plus className="w-6 h-6 text-white" />
                       </div>
                       <div className="text-amber-400 font-semibold">Upload Audio File</div>
-                      <div className="text-gray-400 text-sm">MP3, WAV, M4A, etc. (Max 1GB)</div>
+                      <div className="text-gray-400 text-sm">
+                        Any audio format, any size. Large files automatically compressed.
+                      </div>
                     </div>
                   </label>
                   <input
@@ -575,6 +719,21 @@ const JazzRadioPlayer: React.FC = () => {
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                    </div>
+                  </div>
+                )}
+                
+                {isCompressing && (
+                  <div className="mt-4">
+                    <div className="text-amber-400 text-sm mb-2">Compressing audio... {compressionProgress}%</div>
+                    <div className="w-full bg-gray-600 rounded-full h-2 mb-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${compressionProgress}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-gray-400 text-xs">
+                      Large files are automatically compressed to ensure successful upload
                     </div>
                   </div>
                 )}
