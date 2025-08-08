@@ -151,9 +151,13 @@ const JazzRadioPlayer: React.FC = () => {
         return;
       }
       
-      // Check file size (limit to 100MB)
-      if (file.size > 100 * 1024 * 1024) {
-        alert('File size must be less than 100MB');
+      // Check file size (limit to 1GB)
+      const maxSizeGB = 1;
+      const maxSizeBytes = maxSizeGB * 1024 * 1024 * 1024;
+      const fileSizeGB = file.size / (1024 * 1024 * 1024);
+      
+      if (file.size > maxSizeBytes) {
+        alert(`File size must be less than ${maxSizeGB}GB. Your file is ${fileSizeGB.toFixed(2)}GB.`);
         return;
       }
       
@@ -481,7 +485,7 @@ const JazzRadioPlayer: React.FC = () => {
                         <Plus className="w-6 h-6 text-white" />
                       </div>
                       <div className="text-amber-400 font-semibold">Upload Audio File</div>
-                      <div className="text-gray-400 text-sm">MP3, WAV, M4A, etc. (Max 100MB)</div>
+                      <div className="text-gray-400 text-sm">MP3, WAV, M4A, etc. (Max 1GB)</div>
                     </div>
                   </label>
                   <input
