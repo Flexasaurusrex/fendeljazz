@@ -55,6 +55,9 @@ const JazzRadioPlayer: React.FC = () => {
     url: ''
   });
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -141,28 +144,123 @@ const JazzRadioPlayer: React.FC = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const addRecording = () => {
-    // More flexible validation - only require title
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('audio/')) {
+        alert('Please select an audio file (MP3, WAV, etc.)');
+        return;
+      }
+      
+      // Check file size (limit to 100MB)
+      if (file.size > 100 * 1024 * 1024) {
+        alert('File size must be less than 100MB');
+        return;
+      }
+      
+      setUploadedFile(file);
+      
+      // Auto-fill title if empty
+      if (!newRecording.title) {
+        const fileName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+        setNewRecording(prev => ({ ...prev, title: fileName }));
+      }
+    }
+  };
+
+  const uploadFileToVercel = async (file: File): Promise<string> => {
+    setIsUploading(true);
+    setUploadProgress(0);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Simulate progress for UX (real upload happens quickly)
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 200);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Upload failed');
+      }
+
+      const result = await response.json();
+      
+      // Small delay to show 100% completion
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setIsUploading(false);
+      setUploadProgress(0);
+      
+      return result.url;
+
+    } catch (error) {
+      setIsUploading(false);
+      setUploadProgress(0);
+      console.error('Upload error:', error);
+      throw error;
+    }
+  };
+
+  const addRecording = async () => {
+    // Validate required fields
     if (!newRecording.title.trim()) {
       alert('Please enter a recording title');
       return;
     }
 
+    let audioUrl = newRecording.url.trim();
+    
+    // If user uploaded a file, upload it to Vercel Blob
+    if (uploadedFile) {
+      try {
+        audioUrl = await uploadFileToVercel(uploadedFile);
+      } catch (error) {
+        alert(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return;
+      }
+    }
+    
+    // If still no audio source, use default
+    if (!audioUrl) {
+      audioUrl = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
+    }
+
     const recording: Recording = {
-      ...newRecording,
       id: Date.now(),
       title: newRecording.title.trim(),
       description: newRecording.description.trim(),
       date: newRecording.date.trim() || new Date().toLocaleDateString(),
       duration: newRecording.duration.trim() || 'Unknown',
-      url: newRecording.url.trim() || 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' // Default test audio
+      url: audioUrl
     };
     
     setRecordings([...recordings, recording]);
     setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+    setUploadedFile(null);
     
-    // Provide feedback
-    alert('Recording added successfully!');
+    // Reset file input
+    const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
+    if (fileInput) fileInput.value = '';
+    
+    alert('Recording uploaded and added successfully!');
   };
 
   const deleteRecording = (id: number) => {
@@ -190,6 +288,11 @@ const JazzRadioPlayer: React.FC = () => {
   const cancelEdit = () => {
     setEditingId(null);
     setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+    setUploadedFile(null);
+    
+    // Reset file input
+    const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
+    if (fileInput) fileInput.value = '';
   };
 
   if (currentView === 'landing') {
@@ -294,12 +397,77 @@ const JazzRadioPlayer: React.FC = () => {
               />
               <input
                 type="url"
-                placeholder="Audio URL (optional - test audio if empty)"
+                placeholder="Or paste audio URL"
                 value={newRecording.url}
                 onChange={(e) => setNewRecording({...newRecording, url: e.target.value})}
                 className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
               />
             </div>
+            
+            {/* File Upload Section */}
+            <div className="mb-4 p-4 bg-gray-700 rounded-lg border-2 border-dashed border-gray-600">
+              <div className="text-center">
+                <div className="mb-4">
+                  <label htmlFor="audio-file-input" className="cursor-pointer">
+                    <div className="flex flex-col items-center space-y-2">
+                      <div className="w-12 h-12 bg-amber-600 rounded-full flex items-center justify-center">
+                        <Plus className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="text-amber-400 font-semibold">Upload Audio File</div>
+                      <div className="text-gray-400 text-sm">MP3, WAV, M4A, etc. (Max 100MB)</div>
+                    </div>
+                  </label>
+                  <input
+                    id="audio-file-input"
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </div>
+                
+                {uploadedFile && (
+                  <div className="mt-4 p-3 bg-gray-800 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+                          <Waves className="w-4 h-4 text-white" />
+                        </div>
+                        <div>
+                          <div className="text-white font-medium">{uploadedFile.name}</div>
+                          <div className="text-gray-400 text-sm">
+                            {(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setUploadedFile(null);
+                          const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
+                          if (fileInput) fileInput.value = '';
+                        }}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {isUploading && (
+                  <div className="mt-4">
+                    <div className="text-amber-400 text-sm mb-2">Uploading... {uploadProgress}%</div>
+                    <div className="w-full bg-gray-600 rounded-full h-2">
+                      <div 
+                        className="bg-amber-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
             <textarea
               placeholder="Description (optional)"
               value={newRecording.description}
@@ -308,7 +476,7 @@ const JazzRadioPlayer: React.FC = () => {
               rows={3}
             />
             <div className="mb-4 text-sm text-gray-400">
-              <p>* Only title is required. Other fields will be auto-filled with defaults if left empty.</p>
+              <p>* Upload an audio file OR paste a URL. Title is required.</p>
             </div>
             <div className="flex space-x-4">
               {editingId ? (
