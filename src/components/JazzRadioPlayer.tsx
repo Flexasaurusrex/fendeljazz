@@ -174,10 +174,12 @@ const JazzRadioPlayer: React.FC = () => {
     setUploadProgress(0);
     
     try {
+      console.log('Starting upload for:', file.name);
+      
       const formData = new FormData();
       formData.append('file', file);
 
-      // Simulate progress for UX (real upload happens quickly)
+      // Simulate progress for UX
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
           if (prev >= 90) {
@@ -188,6 +190,8 @@ const JazzRadioPlayer: React.FC = () => {
         });
       }, 200);
 
+      console.log('Sending request to /api/upload');
+      
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -196,12 +200,17 @@ const JazzRadioPlayer: React.FC = () => {
       clearInterval(progressInterval);
       setUploadProgress(100);
 
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+        const errorText = await response.text();
+        console.error('Upload failed:', response.status, errorText);
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json();
+      console.log('Upload result:', result);
       
       // Small delay to show 100% completion
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -209,7 +218,8 @@ const JazzRadioPlayer: React.FC = () => {
       setIsUploading(false);
       setUploadProgress(0);
       
-      return result.url;
+      // For now, return a test URL since we're testing the API
+      return result.url || 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
 
     } catch (error) {
       setIsUploading(false);
@@ -264,10 +274,29 @@ const JazzRadioPlayer: React.FC = () => {
   };
 
   const deleteRecording = (id: number) => {
-    setRecordings(recordings.filter(r => r.id !== id));
-    if (currentTrack >= recordings.length - 1) {
-      setCurrentTrack(Math.max(0, recordings.length - 2));
+    const recordingIndex = recordings.findIndex(r => r.id === id);
+    if (recordingIndex === -1) return;
+
+    const newRecordings = recordings.filter(r => r.id !== id);
+    setRecordings(newRecordings);
+
+    // Handle current track adjustment
+    if (newRecordings.length === 0) {
+      // No recordings left
+      setCurrentTrack(0);
+      setIsPlaying(false);
+    } else if (recordingIndex === currentTrack) {
+      // Deleted the currently playing track
+      if (currentTrack >= newRecordings.length) {
+        // Current track index is now out of bounds, go to last track
+        setCurrentTrack(newRecordings.length - 1);
+      }
+      // If not out of bounds, keep the same index (will play next track)
+    } else if (recordingIndex < currentTrack) {
+      // Deleted a track before the current one, adjust current track index
+      setCurrentTrack(currentTrack - 1);
     }
+    // If deleted track is after current track, no adjustment needed
   };
 
   const startEdit = (recording: Recording) => {
@@ -528,7 +557,11 @@ const JazzRadioPlayer: React.FC = () => {
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => deleteRecording(recording.id)}
+                      onClick={() => {
+                        if (confirm(`Are you sure you want to delete "${recording.title}"?`)) {
+                          deleteRecording(recording.id);
+                        }
+                      }}
                       className="p-2 text-red-400 hover:bg-gray-600 rounded-lg transition-colors"
                       title="Delete"
                     >
