@@ -28,7 +28,7 @@ const JazzRadioPlayer: React.FC = () => {
       description: "Opening show featuring Spike Wilner Trio",
       date: "August 4, 2025",
       duration: "52:14",
-      url: "https://example.com/recording1.mp3"
+      url: "https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"
     },
     {
       id: 2,
@@ -36,7 +36,7 @@ const JazzRadioPlayer: React.FC = () => {
       description: "Billie Holiday tribute with special quiz",
       date: "August 2, 2025",
       duration: "48:32",
-      url: "https://example.com/recording2.mp3"
+      url: "https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"
     },
     {
       id: 3,
@@ -44,7 +44,7 @@ const JazzRadioPlayer: React.FC = () => {
       description: "Gershwin classics and Juliet Ewing interview",
       date: "July 31, 2025", 
       duration: "56:18",
-      url: "https://example.com/recording3.mp3"
+      url: "https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"
     }
   ]);
   const [newRecording, setNewRecording] = useState<Omit<Recording, 'id'>>({
