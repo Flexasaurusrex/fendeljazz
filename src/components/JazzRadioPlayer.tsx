@@ -48,12 +48,10 @@ const JazzRadioPlayer: React.FC = () => {
         setRecordings(data);
       } else {
         console.error('Failed to load recordings, status:', response.status);
-        // If API fails, don't load any default recordings
         setRecordings([]);
       }
     } catch (error) {
       console.error('Error loading recordings:', error);
-      // If there's an error, don't load defaults
       setRecordings([]);
     } finally {
       setIsLoadingRecordings(false);
@@ -208,7 +206,6 @@ const JazzRadioPlayer: React.FC = () => {
       setUploadProgress(100);
 
       console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -225,7 +222,6 @@ const JazzRadioPlayer: React.FC = () => {
       setIsUploading(false);
       setUploadProgress(0);
       
-      // For now, return a test URL since we're testing the API
       return result.url || 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
 
     } catch (error) {
@@ -343,21 +339,32 @@ const JazzRadioPlayer: React.FC = () => {
     setNewRecording(recording);
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingId) return;
     
-    setRecordings(recordings.map(r => 
-      r.id === editingId ? { ...newRecording, id: editingId } : r
-    ));
-    setEditingId(null);
-    setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
-  };
+    try {
+      const response = await fetch(`/api/recordings/${editingId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newRecording),
+      });
 
-  const clearAllRecordings = () => {
-    if (confirm('Are you sure you want to delete ALL recordings? This cannot be undone.')) {
-      setRecordings([]);
-      setCurrentTrack(0);
-      setIsPlaying(false);
+      if (response.ok) {
+        // Reload recordings from database
+        await loadRecordings();
+        
+        // Reset form
+        setEditingId(null);
+        setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+      } else {
+        const error = await response.json();
+        alert(`Failed to update recording: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error updating recording:', error);
+      alert('Failed to update recording');
     }
   };
 
@@ -369,6 +376,28 @@ const JazzRadioPlayer: React.FC = () => {
     // Reset file input
     const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
     if (fileInput) fileInput.value = '';
+  };
+
+  const clearAllRecordings = async () => {
+    if (confirm('Are you sure you want to delete ALL recordings? This cannot be undone.')) {
+      try {
+        // Delete all recordings one by one
+        const deletePromises = recordings.map(recording => 
+          fetch(`/api/recordings/${recording.id}`, { method: 'DELETE' })
+        );
+        
+        await Promise.all(deletePromises);
+        
+        // Reload recordings from database
+        await loadRecordings();
+        
+        setCurrentTrack(0);
+        setIsPlaying(false);
+      } catch (error) {
+        console.error('Error clearing recordings:', error);
+        alert('Failed to clear all recordings');
+      }
+    }
   };
 
   if (currentView === 'landing') {
@@ -512,7 +541,10 @@ const JazzRadioPlayer: React.FC = () => {
                         <div>
                           <div className="text-white font-medium">{uploadedFile.name}</div>
                           <div className="text-gray-400 text-sm">
-                            {(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB
+                            {uploadedFile.size > 1024 * 1024 * 1024 
+                              ? `${(uploadedFile.size / (1024 * 1024 * 1024)).toFixed(2)} GB`
+                              : `${(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB`
+                            }
                           </div>
                         </div>
                       </div>
@@ -586,22 +618,13 @@ const JazzRadioPlayer: React.FC = () => {
           <div className="bg-gray-800 rounded-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-amber-400">Recordings ({recordings.length})</h2>
-              <div className="flex space-x-2">
-                <button
-                  onClick={clearAllRecordings}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm"
-                  title="Delete all recordings"
-                >
-                  Clear All
-                </button>
-                <button
-                  onClick={resetToDefaults}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-sm"
-                  title="Reset to demo recordings"
-                >
-                  Reset Demo
-                </button>
-              </div>
+              <button
+                onClick={clearAllRecordings}
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm"
+                title="Delete all recordings"
+              >
+                Clear All
+              </button>
             </div>
             <div className="space-y-4">
               {isLoadingRecordings ? (
