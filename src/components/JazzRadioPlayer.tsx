@@ -296,41 +296,45 @@ const JazzRadioPlayer: React.FC = () => {
 
   const deleteRecording = async (id: number) => {
     try {
+      console.log(`Attempting to delete recording ${id}...`);
+      
       const response = await fetch(`/api/recordings/${id}`, {
         method: 'DELETE',
       });
 
+      console.log(`Delete response status: ${response.status}`);
+
       if (response.ok) {
+        console.log(`Successfully deleted recording ${id}`);
+        
         // Find the index of the deleted recording
         const recordingIndex = recordings.findIndex(r => r.id === id);
         
         // Handle current track adjustment before reloading
         if (recordingIndex !== -1) {
           if (recordings.length === 1) {
-            // No recordings left
             setCurrentTrack(0);
             setIsPlaying(false);
           } else if (recordingIndex === currentTrack) {
-            // Deleted the currently playing track
             if (currentTrack >= recordings.length - 1) {
-              // Current track index will be out of bounds, go to last track
               setCurrentTrack(recordings.length - 2);
             }
           } else if (recordingIndex < currentTrack) {
-            // Deleted a track before the current one, adjust current track index
             setCurrentTrack(currentTrack - 1);
           }
         }
 
         // Reload recordings from database
         await loadRecordings();
+        alert('Recording deleted successfully!');
       } else {
-        const error = await response.json();
-        alert(`Failed to delete recording: ${error.error}`);
+        const errorText = await response.text();
+        console.error(`Failed to delete recording:`, errorText);
+        alert(`Failed to delete recording: ${response.status} ${response.statusText}`);
       }
     } catch (error) {
       console.error('Error deleting recording:', error);
-      alert('Failed to delete recording');
+      alert('Failed to delete recording: ' + error.message);
     }
   };
 
@@ -381,21 +385,34 @@ const JazzRadioPlayer: React.FC = () => {
   const clearAllRecordings = async () => {
     if (confirm('Are you sure you want to delete ALL recordings? This cannot be undone.')) {
       try {
-        // Delete all recordings one by one
-        const deletePromises = recordings.map(recording => 
-          fetch(`/api/recordings/${recording.id}`, { method: 'DELETE' })
-        );
+        console.log('Starting to clear all recordings...');
         
-        await Promise.all(deletePromises);
+        // Delete all recordings one by one
+        for (const recording of recordings) {
+          console.log(`Deleting recording ${recording.id}: ${recording.title}`);
+          const response = await fetch(`/api/recordings/${recording.id}`, { 
+            method: 'DELETE' 
+          });
+          
+          if (!response.ok) {
+            console.error(`Failed to delete recording ${recording.id}:`, response.status);
+          } else {
+            console.log(`Successfully deleted recording ${recording.id}`);
+          }
+        }
+        
+        console.log('Finished deleting all recordings, reloading...');
         
         // Reload recordings from database
         await loadRecordings();
         
         setCurrentTrack(0);
         setIsPlaying(false);
+        
+        alert('All recordings deleted successfully!');
       } catch (error) {
         console.error('Error clearing recordings:', error);
-        alert('Failed to clear all recordings');
+        alert('Failed to clear all recordings: ' + error.message);
       }
     }
   };
