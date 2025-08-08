@@ -152,11 +152,6 @@ const JazzRadioPlayer: React.FC = () => {
       setIsCompressing(true);
       setCompressionProgress(0);
 
-      // Use a simpler approach - just reduce quality/bitrate
-      const audio = new Audio();
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
       const fileReader = new FileReader();
       
       fileReader.onload = async (e) => {
@@ -164,18 +159,12 @@ const JazzRadioPlayer: React.FC = () => {
           setCompressionProgress(20);
           
           const arrayBuffer = e.target?.result as ArrayBuffer;
-          
-          // Calculate target size (aim for 40MB to be safe)
           const targetSizeBytes = 40 * 1024 * 1024;
           const compressionRatio = targetSizeBytes / file.size;
           
           setCompressionProgress(40);
           
-          // Create a new compressed file
-          // For simplicity, we'll reduce the file size by creating a new blob with lower quality
           const uint8Array = new Uint8Array(arrayBuffer);
-          
-          // Sample reduction - take every nth byte based on compression ratio
           const sampleRate = Math.max(1, Math.floor(1 / compressionRatio));
           const compressedData = new Uint8Array(Math.floor(uint8Array.length / sampleRate));
           
@@ -187,38 +176,9 @@ const JazzRadioPlayer: React.FC = () => {
           
           setCompressionProgress(80);
           
-          // Create new file with compressed data
           const compressedBlob = new Blob([compressedData], { type: file.type });
           const compressedFile = new File([compressedBlob], 
-            file.name.replace(/\.[^/.]+$/, '_compressed  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
-      
-      // Validate file type
-      if (!file.type.startsWith('audio/')) {
-        alert('Please select an audio file (MP3, WAV, etc.)');
-        return;
-      }
-      
-      // Check if file is too large (over 45MB we'll warn about upload limits)
-      const fileSizeMB = file.size / (1024 * 1024);
-      
-      if (fileSizeMB > 45) {
-        if (confirm(`File is ${fileSizeMB.toFixed(1)}MB. Large files may fail to upload due to server limits. Continue anyway?`)) {
-          setUploadedFile(file);
-        }
-      } else {
-        setUploadedFile(file);
-      }
-      
-      // Auto-fill title if empty
-      if (!newRecording.title && file) {
-        const fileName = file.name.replace(/\.[^/.]+$/, "");
-        setNewRecording(prev => ({ ...prev, title: fileName }));
-      }
-    }
-  };'), 
+            file.name.replace(/\.[^/.]+$/, '_compressed$&'), 
             { type: file.type }
           );
           
@@ -254,33 +214,29 @@ const JazzRadioPlayer: React.FC = () => {
     if (file) {
       console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
       
-      // Validate file type
       if (!file.type.startsWith('audio/')) {
         alert('Please select an audio file (MP3, WAV, etc.)');
         return;
       }
       
-      // Check if file needs compression (over 45MB)
       const fileSizeMB = file.size / (1024 * 1024);
-      const compressionThreshold = 45; // MB
+      const compressionThreshold = 45;
       
       if (fileSizeMB > compressionThreshold) {
-        if (confirm(`File is ${fileSizeMB.toFixed(1)}MB. Would you like to automatically compress it to ensure successful upload? This may take a few moments but will preserve audio quality.`)) {
+        if (confirm(`File is ${fileSizeMB.toFixed(1)}MB. Would you like to automatically compress it to ensure successful upload?`)) {
           try {
             console.log('Starting compression...');
             const compressedFile = await compressAudioFile(file);
             console.log(`Compression complete: ${fileSizeMB.toFixed(1)}MB → ${(compressedFile.size / (1024 * 1024)).toFixed(1)}MB`);
             setUploadedFile(compressedFile);
             
-            // Auto-fill title if empty (use original filename)
             if (!newRecording.title) {
               const fileName = file.name.replace(/\.[^/.]+$/, "");
               setNewRecording(prev => ({ ...prev, title: fileName }));
             }
           } catch (error) {
             console.error('Compression failed:', error);
-            alert('Compression failed. You can still try uploading the original file, but it might fail due to size limits.');
-            // Fallback to original file
+            alert('Compression failed. You can still try uploading the original file.');
             setUploadedFile(file);
             if (!newRecording.title) {
               const fileName = file.name.replace(/\.[^/.]+$/, "");
@@ -288,7 +244,6 @@ const JazzRadioPlayer: React.FC = () => {
             }
           }
         } else {
-          // User declined compression, use original file but warn
           setUploadedFile(file);
           if (!newRecording.title) {
             const fileName = file.name.replace(/\.[^/.]+$/, "");
@@ -296,11 +251,9 @@ const JazzRadioPlayer: React.FC = () => {
           }
         }
       } else {
-        // File is small enough, use as-is
         console.log('File size OK, no compression needed');
         setUploadedFile(file);
         
-        // Auto-fill title if empty
         if (!newRecording.title) {
           const fileName = file.name.replace(/\.[^/.]+$/, "");
           setNewRecording(prev => ({ ...prev, title: fileName }));
@@ -319,7 +272,6 @@ const JazzRadioPlayer: React.FC = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      // More realistic progress tracking for large files
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
           if (prev >= 85) {
@@ -328,7 +280,7 @@ const JazzRadioPlayer: React.FC = () => {
           }
           return prev + 3;
         });
-      }, 2000); // Slower progress for large files
+      }, 2000);
 
       console.log('Sending request to /api/upload');
       
@@ -357,7 +309,6 @@ const JazzRadioPlayer: React.FC = () => {
       
       setUploadProgress(100);
       
-      // Small delay to show 100% completion
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       setIsUploading(false);
@@ -374,7 +325,6 @@ const JazzRadioPlayer: React.FC = () => {
   };
 
   const addRecording = async () => {
-    // Validate required fields
     if (!newRecording.title.trim()) {
       alert('Please enter a recording title');
       return;
@@ -382,7 +332,6 @@ const JazzRadioPlayer: React.FC = () => {
 
     let audioUrl = newRecording.url.trim();
     
-    // If user uploaded a file, upload it to Vercel Blob
     if (uploadedFile) {
       try {
         audioUrl = await uploadFileToVercel(uploadedFile);
@@ -392,7 +341,6 @@ const JazzRadioPlayer: React.FC = () => {
       }
     }
     
-    // If still no audio source, use default
     if (!audioUrl) {
       audioUrl = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
     }
@@ -413,14 +361,10 @@ const JazzRadioPlayer: React.FC = () => {
       });
 
       if (response.ok) {
-        // Reload recordings from database
         await loadRecordings();
-        
-        // Reset form
         setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
         setUploadedFile(null);
         
-        // Reset file input
         const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
         if (fileInput) fileInput.value = '';
         
@@ -448,10 +392,8 @@ const JazzRadioPlayer: React.FC = () => {
       if (response.ok) {
         console.log(`Successfully deleted recording ${id}`);
         
-        // Find the index of the deleted recording
         const recordingIndex = recordings.findIndex(r => r.id === id);
         
-        // Handle current track adjustment before reloading
         if (recordingIndex !== -1) {
           if (recordings.length === 1) {
             setCurrentTrack(0);
@@ -465,7 +407,6 @@ const JazzRadioPlayer: React.FC = () => {
           }
         }
 
-        // Reload recordings from database
         await loadRecordings();
         alert('Recording deleted successfully!');
       } else {
@@ -497,10 +438,7 @@ const JazzRadioPlayer: React.FC = () => {
       });
 
       if (response.ok) {
-        // Reload recordings from database
         await loadRecordings();
-        
-        // Reset form
         setEditingId(null);
         setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
       } else {
@@ -518,7 +456,6 @@ const JazzRadioPlayer: React.FC = () => {
     setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
     setUploadedFile(null);
     
-    // Reset file input
     const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
     if (fileInput) fileInput.value = '';
   };
@@ -528,7 +465,6 @@ const JazzRadioPlayer: React.FC = () => {
       try {
         console.log('Starting to clear all recordings...');
         
-        // Delete all recordings one by one
         for (const recording of recordings) {
           console.log(`Deleting recording ${recording.id}: ${recording.title}`);
           const response = await fetch(`/api/recordings/${recording.id}`, { 
@@ -544,7 +480,6 @@ const JazzRadioPlayer: React.FC = () => {
         
         console.log('Finished deleting all recordings, reloading...');
         
-        // Reload recordings from database
         await loadRecordings();
         
         setCurrentTrack(0);
@@ -562,7 +497,6 @@ const JazzRadioPlayer: React.FC = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-900 via-orange-800 to-red-900 flex items-center justify-center p-4">
         <div className="text-center max-w-2xl mx-auto">
-          {/* Animated ON AIR Sign */}
           <div className="relative mb-12">
             <div className="inline-flex items-center space-x-4 bg-black/20 backdrop-blur-sm rounded-full px-8 py-6 border border-amber-400/30">
               <div className="relative">
@@ -577,7 +511,6 @@ const JazzRadioPlayer: React.FC = () => {
             </div>
           </div>
 
-          {/* Main Title */}
           <div className="mb-8">
             <h1 className="text-6xl md:text-8xl font-bold text-amber-100 mb-4 tracking-wider drop-shadow-2xl">
               HIGH STANDARDS
@@ -590,7 +523,6 @@ const JazzRadioPlayer: React.FC = () => {
             </div>
           </div>
 
-          {/* Subtitle */}
           <div className="mb-12 max-w-md mx-auto">
             <p className="text-amber-100/90 text-lg leading-relaxed font-light">
               Step into Portland&apos;s premier jazz experience. 28 years of curated recordings 
@@ -598,7 +530,6 @@ const JazzRadioPlayer: React.FC = () => {
             </p>
           </div>
 
-          {/* Enter Button */}
           <button
             onClick={() => setCurrentView('player')}
             className="group relative inline-flex items-center space-x-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white px-12 py-4 rounded-full font-bold text-xl tracking-wider transition-all duration-300 shadow-2xl hover:shadow-amber-500/25 hover:scale-105"
@@ -607,7 +538,6 @@ const JazzRadioPlayer: React.FC = () => {
             <span>ENTER</span>
           </button>
 
-          {/* Decorative Jazz Elements */}
           <div className="absolute top-10 left-10 text-amber-400/20 text-8xl">♪</div>
           <div className="absolute bottom-10 right-10 text-amber-400/20 text-6xl">♫</div>
           <div className="absolute top-1/3 right-20 text-amber-400/10 text-4xl">♬</div>
@@ -630,7 +560,6 @@ const JazzRadioPlayer: React.FC = () => {
             </button>
           </div>
 
-          {/* Add/Edit Recording Form */}
           <div className="bg-gray-800 rounded-lg p-6 mb-8">
             <h2 className="text-xl font-bold mb-4 text-amber-400">
               {editingId ? 'Edit Recording' : 'Add New Recording'}
@@ -667,7 +596,6 @@ const JazzRadioPlayer: React.FC = () => {
               />
             </div>
             
-            {/* File Upload Section */}
             <div className="mb-4 p-4 bg-gray-700 rounded-lg border-2 border-dashed border-gray-600">
               <div className="text-center">
                 <div className="mb-4">
@@ -791,7 +719,6 @@ const JazzRadioPlayer: React.FC = () => {
             </div>
           </div>
 
-          {/* Recordings List */}
           <div className="bg-gray-800 rounded-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-amber-400">Recordings ({recordings.length})</h2>
@@ -861,7 +788,6 @@ const JazzRadioPlayer: React.FC = () => {
         onPause={() => setIsPlaying(false)}
       />
 
-      {/* Header */}
       <div className="bg-gradient-to-r from-amber-900/50 to-orange-800/50 backdrop-blur-sm border-b border-amber-500/20 p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -883,9 +809,7 @@ const JazzRadioPlayer: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Player */}
       <div className="max-w-4xl mx-auto p-6">
-        {/* Current Track Info */}
         <div className="text-center mb-8">
           <h2 className="text-2xl md:text-3xl font-bold text-amber-100 mb-2">
             {recordings[currentTrack]?.title}
@@ -894,7 +818,6 @@ const JazzRadioPlayer: React.FC = () => {
           <p className="text-amber-400 text-sm">{recordings[currentTrack]?.date}</p>
         </div>
 
-        {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex justify-between text-sm text-gray-400 mb-2">
             <span>{formatTime(currentTime)}</span>
@@ -912,7 +835,6 @@ const JazzRadioPlayer: React.FC = () => {
           </div>
         </div>
 
-        {/* Controls */}
         <div className="flex items-center justify-center space-x-8 mb-8">
           <button
             onClick={handlePrevious}
@@ -946,7 +868,6 @@ const JazzRadioPlayer: React.FC = () => {
           </button>
         </div>
 
-        {/* Volume Control */}
         <div className="flex items-center justify-center space-x-4 mb-8">
           <button onClick={toggleMute} className="text-gray-400 hover:text-amber-400 transition-colors">
             {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
@@ -962,7 +883,6 @@ const JazzRadioPlayer: React.FC = () => {
           />
         </div>
 
-        {/* Playlist */}
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 border border-gray-700/50">
           <h3 className="text-lg font-bold text-amber-400 mb-4">Playlist</h3>
           <div className="space-y-3">
@@ -996,7 +916,6 @@ const JazzRadioPlayer: React.FC = () => {
         </div>
       </div>
 
-      {/* Admin Button */}
       <button
         onClick={() => setIsAdmin(true)}
         className="fixed bottom-6 left-6 w-12 h-12 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center text-amber-400 border border-gray-600 shadow-lg transition-all duration-300 hover:scale-110"
