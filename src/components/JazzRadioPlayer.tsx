@@ -44,12 +44,17 @@ const JazzRadioPlayer: React.FC = () => {
       const response = await fetch('/api/recordings');
       if (response.ok) {
         const data = await response.json();
+        console.log('Loaded recordings from database:', data);
         setRecordings(data);
       } else {
-        console.error('Failed to load recordings');
+        console.error('Failed to load recordings, status:', response.status);
+        // If API fails, don't load any default recordings
+        setRecordings([]);
       }
     } catch (error) {
       console.error('Error loading recordings:', error);
+      // If there's an error, don't load defaults
+      setRecordings([]);
     } finally {
       setIsLoadingRecordings(false);
     }
