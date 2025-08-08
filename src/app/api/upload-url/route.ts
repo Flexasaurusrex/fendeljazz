@@ -33,7 +33,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         
         // The file is now uploaded to Vercel Blob
         // We don't need to save to database here since the component will handle it
-        return { success: true };
+        // Note: This function should not return anything (void)
       },
     });
 
