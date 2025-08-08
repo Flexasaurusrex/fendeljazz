@@ -21,32 +21,8 @@ const JazzRadioPlayer: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [currentTrack, setCurrentTrack] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [recordings, setRecordings] = useState<Recording[]>([
-    {
-      id: 1,
-      title: "High Standards Episode #001",
-      description: "Opening show featuring Spike Wilner Trio",
-      date: "August 4, 2025",
-      duration: "52:14",
-      url: "https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"
-    },
-    {
-      id: 2,
-      title: "High Standards Episode #002", 
-      description: "Billie Holiday tribute with special quiz",
-      date: "August 2, 2025",
-      duration: "48:32",
-      url: "https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"
-    },
-    {
-      id: 3,
-      title: "High Standards Episode #003",
-      description: "Gershwin classics and Juliet Ewing interview",
-      date: "July 31, 2025", 
-      duration: "56:18",
-      url: "https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"
-    }
-  ]);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [isLoadingRecordings, setIsLoadingRecordings] = useState(true);
   const [newRecording, setNewRecording] = useState<Omit<Recording, 'id'>>({
     title: '',
     description: '',
@@ -60,6 +36,28 @@ const JazzRadioPlayer: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Load recordings from Supabase on component mount
+  const loadRecordings = async () => {
+    try {
+      setIsLoadingRecordings(true);
+      const response = await fetch('/api/recordings');
+      if (response.ok) {
+        const data = await response.json();
+        setRecordings(data);
+      } else {
+        console.error('Failed to load recordings');
+      }
+    } catch (error) {
+      console.error('Error loading recordings:', error);
+    } finally {
+      setIsLoadingRecordings(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRecordings();
+  }, []);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -253,50 +251,82 @@ const JazzRadioPlayer: React.FC = () => {
       audioUrl = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
     }
 
-    const recording: Recording = {
-      id: Date.now(),
-      title: newRecording.title.trim(),
-      description: newRecording.description.trim(),
-      date: newRecording.date.trim() || new Date().toLocaleDateString(),
-      duration: newRecording.duration.trim() || 'Unknown',
-      url: audioUrl
-    };
-    
-    setRecordings([...recordings, recording]);
-    setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
-    setUploadedFile(null);
-    
-    // Reset file input
-    const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
-    if (fileInput) fileInput.value = '';
-    
-    alert('Recording uploaded and added successfully!');
+    try {
+      const response = await fetch('/api/recordings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: newRecording.title.trim(),
+          description: newRecording.description.trim(),
+          date: newRecording.date.trim() || new Date().toLocaleDateString(),
+          duration: newRecording.duration.trim() || 'Unknown',
+          url: audioUrl
+        }),
+      });
+
+      if (response.ok) {
+        // Reload recordings from database
+        await loadRecordings();
+        
+        // Reset form
+        setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+        setUploadedFile(null);
+        
+        // Reset file input
+        const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
+        if (fileInput) fileInput.value = '';
+        
+        alert('Recording uploaded and added successfully!');
+      } else {
+        const error = await response.json();
+        alert(`Failed to save recording: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error saving recording:', error);
+      alert('Failed to save recording');
+    }
   };
 
-  const deleteRecording = (id: number) => {
-    const recordingIndex = recordings.findIndex(r => r.id === id);
-    if (recordingIndex === -1) return;
+  const deleteRecording = async (id: number) => {
+    try {
+      const response = await fetch(`/api/recordings/${id}`, {
+        method: 'DELETE',
+      });
 
-    const newRecordings = recordings.filter(r => r.id !== id);
-    setRecordings(newRecordings);
+      if (response.ok) {
+        // Find the index of the deleted recording
+        const recordingIndex = recordings.findIndex(r => r.id === id);
+        
+        // Handle current track adjustment before reloading
+        if (recordingIndex !== -1) {
+          if (recordings.length === 1) {
+            // No recordings left
+            setCurrentTrack(0);
+            setIsPlaying(false);
+          } else if (recordingIndex === currentTrack) {
+            // Deleted the currently playing track
+            if (currentTrack >= recordings.length - 1) {
+              // Current track index will be out of bounds, go to last track
+              setCurrentTrack(recordings.length - 2);
+            }
+          } else if (recordingIndex < currentTrack) {
+            // Deleted a track before the current one, adjust current track index
+            setCurrentTrack(currentTrack - 1);
+          }
+        }
 
-    // Handle current track adjustment
-    if (newRecordings.length === 0) {
-      // No recordings left
-      setCurrentTrack(0);
-      setIsPlaying(false);
-    } else if (recordingIndex === currentTrack) {
-      // Deleted the currently playing track
-      if (currentTrack >= newRecordings.length) {
-        // Current track index is now out of bounds, go to last track
-        setCurrentTrack(newRecordings.length - 1);
+        // Reload recordings from database
+        await loadRecordings();
+      } else {
+        const error = await response.json();
+        alert(`Failed to delete recording: ${error.error}`);
       }
-      // If not out of bounds, keep the same index (will play next track)
-    } else if (recordingIndex < currentTrack) {
-      // Deleted a track before the current one, adjust current track index
-      setCurrentTrack(currentTrack - 1);
+    } catch (error) {
+      console.error('Error deleting recording:', error);
+      alert('Failed to delete recording');
     }
-    // If deleted track is after current track, no adjustment needed
   };
 
   const startEdit = (recording: Recording) => {
@@ -312,6 +342,14 @@ const JazzRadioPlayer: React.FC = () => {
     ));
     setEditingId(null);
     setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+  };
+
+  const clearAllRecordings = () => {
+    if (confirm('Are you sure you want to delete ALL recordings? This cannot be undone.')) {
+      setRecordings([]);
+      setCurrentTrack(0);
+      setIsPlaying(false);
+    }
   };
 
   const cancelEdit = () => {
@@ -537,39 +575,67 @@ const JazzRadioPlayer: React.FC = () => {
 
           {/* Recordings List */}
           <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-xl font-bold mb-4 text-amber-400">Recordings</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-amber-400">Recordings ({recordings.length})</h2>
+              <div className="flex space-x-2">
+                <button
+                  onClick={clearAllRecordings}
+                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm"
+                  title="Delete all recordings"
+                >
+                  Clear All
+                </button>
+                <button
+                  onClick={resetToDefaults}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-sm"
+                  title="Reset to demo recordings"
+                >
+                  Reset Demo
+                </button>
+              </div>
+            </div>
             <div className="space-y-4">
-              {recordings.map((recording) => (
-                <div key={recording.id} className="bg-gray-700 rounded-lg p-4 flex justify-between items-start">
-                  <div className="flex-1">
-                    <h3 className="font-bold text-white">{recording.title}</h3>
-                    <p className="text-gray-300 text-sm mb-1">{recording.description}</p>
-                    <div className="text-gray-400 text-xs">
-                      {recording.date} • {recording.duration}
+              {isLoadingRecordings ? (
+                <div className="text-center py-8">
+                  <div className="text-amber-400">Loading recordings...</div>
+                </div>
+              ) : recordings.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-400">No recordings found. Add some recordings to get started!</div>
+                </div>
+              ) : (
+                recordings.map((recording) => (
+                  <div key={recording.id} className="bg-gray-700 rounded-lg p-4 flex justify-between items-start">
+                    <div className="flex-1">
+                      <h3 className="font-bold text-white">{recording.title}</h3>
+                      <p className="text-gray-300 text-sm mb-1">{recording.description}</p>
+                      <div className="text-gray-400 text-xs">
+                        {recording.date} • {recording.duration}
+                      </div>
+                    </div>
+                    <div className="flex space-x-2 ml-4">
+                      <button
+                        onClick={() => startEdit(recording)}
+                        className="p-2 text-blue-400 hover:bg-gray-600 rounded-lg transition-colors"
+                        title="Edit"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete "${recording.title}"?`)) {
+                            deleteRecording(recording.id);
+                          }
+                        }}
+                        className="p-2 text-red-400 hover:bg-gray-600 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex space-x-2 ml-4">
-                    <button
-                      onClick={() => startEdit(recording)}
-                      className="p-2 text-blue-400 hover:bg-gray-600 rounded-lg transition-colors"
-                      title="Edit"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm(`Are you sure you want to delete "${recording.title}"?`)) {
-                          deleteRecording(recording.id);
-                        }
-                      }}
-                      className="p-2 text-red-400 hover:bg-gray-600 rounded-lg transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
