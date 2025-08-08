@@ -152,6 +152,7 @@ const JazzRadioPlayer: React.FC = () => {
       setIsCompressing(true);
       setCompressionProgress(0);
 
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const fileReader = new FileReader();
       
       fileReader.onload = async (e) => {
@@ -159,32 +160,56 @@ const JazzRadioPlayer: React.FC = () => {
           setCompressionProgress(20);
           
           const arrayBuffer = e.target?.result as ArrayBuffer;
-          const targetSizeBytes = 40 * 1024 * 1024;
-          const compressionRatio = targetSizeBytes / file.size;
+          
+          // Decode the audio file
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
           
           setCompressionProgress(40);
           
-          const uint8Array = new Uint8Array(arrayBuffer);
-          const sampleRate = Math.max(1, Math.floor(1 / compressionRatio));
-          const compressedData = new Uint8Array(Math.floor(uint8Array.length / sampleRate));
+          // Calculate compression settings
+          const originalDuration = audioBuffer.duration;
+          const originalSampleRate = audioBuffer.sampleRate;
+          const channels = audioBuffer.numberOfChannels;
+          
+          // Reduce sample rate and bit depth for compression
+          const targetSampleRate = Math.min(22050, originalSampleRate); // Max 22kHz
+          const compressionRatio = targetSampleRate / originalSampleRate;
+          const newLength = Math.floor(audioBuffer.length * compressionRatio);
           
           setCompressionProgress(60);
           
-          for (let i = 0; i < compressedData.length; i++) {
-            compressedData[i] = uint8Array[i * sampleRate];
-          }
+          // Create offline context for rendering compressed audio
+          const offlineContext = new OfflineAudioContext(
+            channels,
+            newLength,
+            targetSampleRate
+          );
+          
+          // Create buffer source
+          const source = offlineContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(offlineContext.destination);
+          source.start(0);
           
           setCompressionProgress(80);
           
-          const compressedBlob = new Blob([compressedData], { type: file.type });
-          const compressedFile = new File([compressedBlob], 
-            file.name.replace(/\.[^/.]+$/, '_compressed$&'), 
-            { type: file.type }
+          // Render the compressed audio
+          const compressedBuffer = await offlineContext.startRendering();
+          
+          // Convert to WAV format with lower quality
+          const wavData = audioBufferToWav(compressedBuffer);
+          
+          setCompressionProgress(90);
+          
+          // Create the compressed file
+          const compressedFile = new File([wavData], 
+            file.name.replace(/\.[^/.]+$/, '_compressed.wav'), 
+            { type: 'audio/wav' }
           );
           
           setCompressionProgress(100);
           
-          console.log(`Compression complete: ${(file.size / (1024 * 1024)).toFixed(1)}MB → ${(compressedFile.size / (1024 * 1024)).toFixed(1)}MB`);
+          console.log(`Real compression complete: ${(file.size / (1024 * 1024)).toFixed(1)}MB → ${(compressedFile.size / (1024 * 1024)).toFixed(1)}MB`);
           
           setTimeout(() => {
             setIsCompressing(false);
@@ -193,6 +218,7 @@ const JazzRadioPlayer: React.FC = () => {
           }, 500);
 
         } catch (error) {
+          console.error('Compression error:', error);
           setIsCompressing(false);
           setCompressionProgress(0);
           reject(error);
@@ -207,6 +233,50 @@ const JazzRadioPlayer: React.FC = () => {
 
       fileReader.readAsArrayBuffer(file);
     });
+  };
+
+  // Helper function to convert AudioBuffer to WAV
+  const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
+    const length = buffer.length;
+    const numberOfChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const bytesPerSample = 2; // 16-bit
+    
+    const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * bytesPerSample);
+    const view = new DataView(arrayBuffer);
+    
+    // WAV header
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+    
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + length * numberOfChannels * bytesPerSample, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numberOfChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numberOfChannels * bytesPerSample, true);
+    view.setUint16(32, numberOfChannels * bytesPerSample, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, length * numberOfChannels * bytesPerSample, true);
+    
+    // Convert audio data to 16-bit PCM
+    let offset = 44;
+    for (let i = 0; i < length; i++) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+    
+    return arrayBuffer;
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
