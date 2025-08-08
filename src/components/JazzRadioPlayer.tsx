@@ -473,4 +473,47 @@ const JazzRadioPlayer: React.FC = () => {
         {/* Playlist */}
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 border border-gray-700/50">
           <h3 className="text-lg font-bold text-amber-400 mb-4">Playlist</h3>
-          <div
+          <div className="space-y-3">
+            {recordings.map((recording, index) => (
+              <div
+                key={recording.id}
+                onClick={() => setCurrentTrack(index)}
+                className={`p-4 rounded-lg cursor-pointer transition-all duration-300 ${
+                  index === currentTrack
+                    ? 'bg-amber-600/20 border border-amber-500/30'
+                    : 'bg-gray-700/30 hover:bg-gray-700/50 border border-transparent'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className={`font-semibold ${index === currentTrack ? 'text-amber-300' : 'text-white'}`}>
+                      {recording.title}
+                    </h4>
+                    <p className="text-gray-400 text-sm">{recording.description}</p>
+                    <p className="text-gray-500 text-xs mt-1">{recording.date} • {recording.duration}</p>
+                  </div>
+                  {index === currentTrack && (
+                    <div className="ml-4">
+                      <Waves className="w-5 h-5 text-amber-400 animate-pulse" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Admin Button */}
+      <button
+        onClick={() => setIsAdmin(true)}
+        className="fixed bottom-6 left-6 w-12 h-12 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center text-amber-400 border border-gray-600 shadow-lg transition-all duration-300 hover:scale-110"
+        title="Admin Panel"
+      >
+        <Mic className="w-5 h-5" />
+      </button>
+    </div>
+  );
+};
+
+export default JazzRadioPlayer;
