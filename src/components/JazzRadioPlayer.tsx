@@ -136,15 +136,23 @@ const JazzRadioPlayer: React.FC = () => {
   // File upload handling with direct client upload to Vercel Blob
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    console.log('File selected:', file);
+    
     if (file) {
-      console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB, type: ${file.type}`);
       
       // Auto-fill title from filename
       if (!newTitle) {
-        setNewTitle(file.name.replace(/\.[^/.]+$/, ''));
+        const titleFromFile = file.name.replace(/\.[^/.]+$/, '');
+        setNewTitle(titleFromFile);
+        console.log('Auto-filled title:', titleFromFile);
       }
       
       setUploadFile(file);
+      console.log('Upload file state updated');
+    } else {
+      console.log('No file selected');
+      setUploadFile(null);
     }
   };
 
@@ -187,6 +195,11 @@ const JazzRadioPlayer: React.FC = () => {
 
   // Add new recording
   const addRecording = async () => {
+    console.log('Add Recording clicked!');
+    console.log('Title:', newTitle);
+    console.log('File:', uploadFile);
+    console.log('Is uploading:', isUploading);
+
     if (!newTitle.trim()) {
       alert('Please enter a title for the recording');
       return;
@@ -198,8 +211,10 @@ const JazzRadioPlayer: React.FC = () => {
     }
 
     try {
+      console.log('Starting upload process...');
       // Upload file to Vercel Blob
       const fileUrl = await uploadToBlob(uploadFile);
+      console.log('File uploaded, URL:', fileUrl);
 
       // Save recording metadata to database
       const newRecording = {
@@ -210,6 +225,7 @@ const JazzRadioPlayer: React.FC = () => {
         url: fileUrl,
       };
 
+      console.log('Saving to database:', newRecording);
       const response = await fetch('/api/recordings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -233,6 +249,7 @@ const JazzRadioPlayer: React.FC = () => {
         alert('Recording added successfully!');
       } else {
         const errorData = await response.json();
+        console.error('Database save failed:', errorData);
         throw new Error(errorData.error || 'Failed to save recording');
       }
     } catch (error) {
@@ -476,6 +493,13 @@ const JazzRadioPlayer: React.FC = () => {
                   >
                     {isUploading ? 'Uploading...' : 'Add Recording'}
                   </button>
+
+                  {/* Debug Info */}
+                  <div className="text-xs text-gray-500 mt-2">
+                    <p>Title: {newTitle ? '✅' : '❌'} {newTitle || 'No title entered'}</p>
+                    <p>File: {uploadFile ? '✅' : '❌'} {uploadFile ? uploadFile.name : 'No file selected'}</p>
+                    <p>Button enabled: {!newTitle.trim() || !uploadFile || isUploading ? '❌' : '✅'}</p>
+                  </div>
                 </div>
               </div>
 
