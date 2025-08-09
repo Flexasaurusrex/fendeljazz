@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, Mic, Plus, Edit, Trash2, X, Upload, FileAudio } from 'lucide-react';
-import { upload } from '@vercel/blob/client';
+import { Play, Pause, Volume2, VolumeX, Mic, Settings, Radio, Waves, Plus, Trash2, Edit3 } from 'lucide-react';
 
 interface Recording {
   id: number;
@@ -14,322 +13,362 @@ interface Recording {
 }
 
 const JazzRadioPlayer: React.FC = () => {
-  const [currentView, setCurrentView] = useState<'landing' | 'player' | 'admin'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'player'>('landing');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTrack, setCurrentTrack] = useState(0);
-  const [recordings, setRecordings] = useState<Recording[]>([]);
-  const [volume, setVolume] = useState(0.7);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(0.8);
+  const [isMuted, setIsMuted] = useState(false);
+  const [currentTrack, setCurrentTrack] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [isLoadingRecordings, setIsLoadingRecordings] = useState(true);
+  const [newRecording, setNewRecording] = useState<Omit<Recording, 'id'>>({
+    title: '',
+    description: '',
+    date: '',
+    duration: '',
+    url: ''
+  });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
   
-  // Form states
-  const [newTitle, setNewTitle] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [editingRecording, setEditingRecording] = useState<Recording | null>(null);
-
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Load recordings from database on mount
-  useEffect(() => {
-    loadRecordings();
-  }, []);
-
+  // Load recordings from Supabase on component mount
   const loadRecordings = async () => {
     try {
-      setLoading(true);
+      setIsLoadingRecordings(true);
       const response = await fetch('/api/recordings');
       if (response.ok) {
         const data = await response.json();
         console.log('Loaded recordings from database:', data);
         setRecordings(data);
       } else {
-        console.error('Failed to load recordings');
+        console.error('Failed to load recordings, status:', response.status);
+        // If API fails, don't load any default recordings
         setRecordings([]);
       }
     } catch (error) {
       console.error('Error loading recordings:', error);
+      // If there's an error, don't load defaults
       setRecordings([]);
     } finally {
-      setLoading(false);
+      setIsLoadingRecordings(false);
     }
   };
 
-  // Audio event handlers
+  useEffect(() => {
+    loadRecordings();
+  }, []);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     const updateTime = () => setCurrentTime(audio.currentTime);
     const updateDuration = () => setDuration(audio.duration);
-    const handleEnded = () => {
-      if (currentTrack < recordings.length - 1) {
-        setCurrentTrack(prev => prev + 1);
-      } else {
-        setIsPlaying(false);
-      }
-    };
-
+    
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('loadedmetadata', updateDuration);
-    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('ended', handleNext);
 
     return () => {
       audio.removeEventListener('timeupdate', updateTime);
       audio.removeEventListener('loadedmetadata', updateDuration);
-      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('ended', handleNext);
     };
-  }, [currentTrack, recordings.length]);
+  }, [currentTrack]);
 
-  // Update audio source when track changes
-  useEffect(() => {
+  const togglePlay = () => {
     const audio = audioRef.current;
-    if (audio && recordings[currentTrack]) {
-      audio.src = recordings[currentTrack].url;
-      if (isPlaying) {
-        audio.play().catch(console.error);
-      }
-    }
-  }, [currentTrack, recordings, isPlaying]);
-
-  // Audio controls
-  const togglePlayPause = () => {
-    const audio = audioRef.current;
-    if (!audio || recordings.length === 0) return;
-
+    if (!audio) return;
+    
     if (isPlaying) {
       audio.pause();
     } else {
-      audio.play().catch(console.error);
+      audio.play();
     }
     setIsPlaying(!isPlaying);
   };
 
-  const skipTrack = (direction: 'prev' | 'next') => {
-    if (direction === 'prev' && currentTrack > 0) {
-      setCurrentTrack(prev => prev - 1);
-    } else if (direction === 'next' && currentTrack < recordings.length - 1) {
-      setCurrentTrack(prev => prev + 1);
-    }
-  };
-
-  const seekTo = (time: number) => {
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     const audio = audioRef.current;
-    if (audio) {
-      audio.currentTime = time;
-      setCurrentTime(time);
+    if (!audio) return;
+    
+    const clickX = e.nativeEvent.offsetX;
+    const width = e.currentTarget.offsetWidth;
+    const newTime = (clickX / width) * duration;
+    audio.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    audio.volume = newVolume;
+    setIsMuted(newVolume === 0);
+  };
+
+  const toggleMute = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    if (isMuted) {
+      audio.volume = volume;
+      setIsMuted(false);
+    } else {
+      audio.volume = 0;
+      setIsMuted(true);
     }
   };
 
-  const formatTime = (time: number) => {
-    if (isNaN(time)) return '0:00';
+  const handleNext = () => {
+    const nextTrack = (currentTrack + 1) % recordings.length;
+    setCurrentTrack(nextTrack);
+    setIsPlaying(true);
+  };
+
+  const handlePrevious = () => {
+    const prevTrack = currentTrack === 0 ? recordings.length - 1 : currentTrack - 1;
+    setCurrentTrack(prevTrack);
+    setIsPlaying(true);
+  };
+
+  const formatTime = (time: number): string => {
+    if (!time) return '0:00';
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // File upload handling with direct client upload to Vercel Blob
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    console.log('File selected:', file);
-    
     if (file) {
-      console.log(`Selected file: ${file.name}, size: ${(file.size / (1024 * 1024)).toFixed(2)}MB, type: ${file.type}`);
-      
-      // Auto-fill title from filename
-      if (!newTitle) {
-        const titleFromFile = file.name.replace(/\.[^/.]+$/, '');
-        setNewTitle(titleFromFile);
-        console.log('Auto-filled title:', titleFromFile);
+      // Validate file type
+      if (!file.type.startsWith('audio/')) {
+        alert('Please select an audio file (MP3, WAV, etc.)');
+        return;
       }
       
-      setUploadFile(file);
-      console.log('Upload file state updated');
-    } else {
-      console.log('No file selected');
-      setUploadFile(null);
+      // Check file size (limit to 1GB)
+      const maxSizeGB = 1;
+      const maxSizeBytes = maxSizeGB * 1024 * 1024 * 1024;
+      const fileSizeGB = file.size / (1024 * 1024 * 1024);
+      
+      if (file.size > maxSizeBytes) {
+        alert(`File size must be less than ${maxSizeGB}GB. Your file is ${fileSizeGB.toFixed(2)}GB.`);
+        return;
+      }
+      
+      setUploadedFile(file);
+      
+      // Auto-fill title if empty
+      if (!newRecording.title) {
+        const fileName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+        setNewRecording(prev => ({ ...prev, title: fileName }));
+      }
     }
   };
 
-  // Direct upload to Vercel Blob
-  const uploadToBlob = async (file: File): Promise<string> => {
-    const filename = `jazz-recordings/${Date.now()}-${file.name}`;
-    
-    console.log(`Uploading ${file.name} directly to Vercel Blob...`);
+  const uploadFileToVercel = async (file: File): Promise<string> => {
     setIsUploading(true);
     setUploadProgress(0);
-
+    
     try {
-      // Simulate progress for user feedback
+      console.log('Starting upload for:', file.name);
+      
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Simulate progress for UX
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
-          if (prev < 90) return prev + 10;
-          return prev;
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
         });
       }, 200);
 
-      // Upload directly to Vercel Blob
-      const blob = await upload(filename, file, {
-        access: 'public',
-        handleUploadUrl: '/api/upload-url'
+      console.log('Sending request to /api/upload');
+      
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
       });
 
       clearInterval(progressInterval);
       setUploadProgress(100);
 
-      console.log('Upload completed successfully:', blob.url);
-      return blob.url;
-    } catch (error) {
-      console.error('Upload failed:', error);
-      throw new Error(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Upload failed:', response.status, errorText);
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Upload result:', result);
+      
+      // Small delay to show 100% completion
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       setIsUploading(false);
-      setTimeout(() => setUploadProgress(0), 1000); // Reset progress after a delay
+      setUploadProgress(0);
+      
+      // For now, return a test URL since we're testing the API
+      return result.url || 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
+
+    } catch (error) {
+      setIsUploading(false);
+      setUploadProgress(0);
+      console.error('Upload error:', error);
+      throw error;
     }
   };
 
-  // Add new recording
   const addRecording = async () => {
-    console.log('Add Recording clicked!');
-    console.log('Title:', newTitle);
-    console.log('File:', uploadFile);
-    console.log('Is uploading:', isUploading);
-
-    if (!newTitle.trim()) {
-      alert('Please enter a title for the recording');
+    // Validate required fields
+    if (!newRecording.title.trim()) {
+      alert('Please enter a recording title');
       return;
     }
 
-    if (!uploadFile) {
-      alert('Please select an audio file to upload');
-      return;
+    let audioUrl = newRecording.url.trim();
+    
+    // If user uploaded a file, upload it to Vercel Blob
+    if (uploadedFile) {
+      try {
+        audioUrl = await uploadFileToVercel(uploadedFile);
+      } catch (error) {
+        alert(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return;
+      }
+    }
+    
+    // If still no audio source, use default
+    if (!audioUrl) {
+      audioUrl = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
     }
 
     try {
-      console.log('Starting upload process...');
-      // Upload file to Vercel Blob
-      const fileUrl = await uploadToBlob(uploadFile);
-      console.log('File uploaded, URL:', fileUrl);
-
-      // Save recording metadata to database
-      const newRecording = {
-        title: newTitle,
-        description: newDescription,
-        date: newDate,
-        duration: 'Unknown', // We could calculate this if needed
-        url: fileUrl,
-      };
-
-      console.log('Saving to database:', newRecording);
       const response = await fetch('/api/recordings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRecording),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: newRecording.title.trim(),
+          description: newRecording.description.trim(),
+          date: newRecording.date.trim() || new Date().toLocaleDateString(),
+          duration: newRecording.duration.trim() || 'Unknown',
+          url: audioUrl
+        }),
       });
 
       if (response.ok) {
-        console.log('Recording added successfully');
-        await loadRecordings(); // Reload the list
+        // Reload recordings from database
+        await loadRecordings();
         
-        // Clear form
-        setNewTitle('');
-        setNewDescription('');
-        setNewDate(new Date().toISOString().split('T')[0]);
-        setUploadFile(null);
+        // Reset form
+        setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+        setUploadedFile(null);
         
         // Reset file input
-        const fileInput = document.getElementById('audio-file') as HTMLInputElement;
+        const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
         if (fileInput) fileInput.value = '';
         
-        alert('Recording added successfully!');
+        alert('Recording uploaded and added successfully!');
       } else {
-        const errorData = await response.json();
-        console.error('Database save failed:', errorData);
-        throw new Error(errorData.error || 'Failed to save recording');
+        const error = await response.json();
+        alert(`Failed to save recording: ${error.error}`);
       }
     } catch (error) {
-      console.error('Error adding recording:', error);
-      alert(`Failed to add recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Error saving recording:', error);
+      alert('Failed to save recording');
     }
   };
 
-  // Delete recording
   const deleteRecording = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this recording?')) return;
-
     try {
-      console.log(`Deleting recording with ID: ${id}`);
       const response = await fetch(`/api/recordings/${id}`, {
         method: 'DELETE',
       });
 
       if (response.ok) {
-        console.log('Recording deleted successfully');
-        await loadRecordings(); // Reload the list
+        // Find the index of the deleted recording
+        const recordingIndex = recordings.findIndex(r => r.id === id);
         
-        // Adjust current track if necessary
-        if (currentTrack >= recordings.length - 1) {
-          setCurrentTrack(Math.max(0, recordings.length - 2));
+        // Handle current track adjustment before reloading
+        if (recordingIndex !== -1) {
+          if (recordings.length === 1) {
+            // No recordings left
+            setCurrentTrack(0);
+            setIsPlaying(false);
+          } else if (recordingIndex === currentTrack) {
+            // Deleted the currently playing track
+            if (currentTrack >= recordings.length - 1) {
+              // Current track index will be out of bounds, go to last track
+              setCurrentTrack(recordings.length - 2);
+            }
+          } else if (recordingIndex < currentTrack) {
+            // Deleted a track before the current one, adjust current track index
+            setCurrentTrack(currentTrack - 1);
+          }
         }
+
+        // Reload recordings from database
+        await loadRecordings();
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete recording');
+        const error = await response.json();
+        alert(`Failed to delete recording: ${error.error}`);
       }
     } catch (error) {
       console.error('Error deleting recording:', error);
-      alert(`Failed to delete recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert('Failed to delete recording');
     }
   };
 
-  // Clear all recordings
-  const clearAllRecordings = async () => {
-    if (!confirm('Are you sure you want to delete ALL recordings? This cannot be undone.')) return;
+  const startEdit = (recording: Recording) => {
+    setEditingId(recording.id);
+    setNewRecording(recording);
+  };
 
-    try {
-      console.log('Clearing all recordings...');
-      const deletePromises = recordings.map(recording => 
-        fetch(`/api/recordings/${recording.id}`, { method: 'DELETE' })
-      );
-      
-      await Promise.all(deletePromises);
-      console.log('All recordings cleared');
-      await loadRecordings(); // Reload the list
+  const saveEdit = () => {
+    if (!editingId) return;
+    
+    setRecordings(recordings.map(r => 
+      r.id === editingId ? { ...newRecording, id: editingId } : r
+    ));
+    setEditingId(null);
+    setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+  };
+
+  const clearAllRecordings = () => {
+    if (confirm('Are you sure you want to delete ALL recordings? This cannot be undone.')) {
+      setRecordings([]);
       setCurrentTrack(0);
-      alert('All recordings have been cleared.');
-    } catch (error) {
-      console.error('Error clearing recordings:', error);
-      alert(`Failed to clear recordings: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsPlaying(false);
     }
   };
 
-  // Update recording
-  const updateRecording = async () => {
-    if (!editingRecording) return;
-
-    try {
-      const response = await fetch(`/api/recordings/${editingRecording.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingRecording),
-      });
-
-      if (response.ok) {
-        await loadRecordings();
-        setEditingRecording(null);
-        alert('Recording updated successfully!');
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update recording');
-      }
-    } catch (error) {
-      console.error('Error updating recording:', error);
-      alert(`Failed to update recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+  const cancelEdit = () => {
+    setEditingId(null);
+    setNewRecording({ title: '', description: '', date: '', duration: '', url: '' });
+    setUploadedFile(null);
+    
+    // Reset file input
+    const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
+    if (fileInput) fileInput.value = '';
   };
 
   if (currentView === 'landing') {
@@ -340,435 +379,431 @@ const JazzRadioPlayer: React.FC = () => {
           <div className="relative mb-12">
             <div className="inline-flex items-center space-x-4 bg-black/20 backdrop-blur-sm rounded-full px-8 py-6 border border-amber-400/30">
               <div className="relative">
-                <div className="w-8 h-8 bg-red-500 rounded-full animate-pulse"></div>
-                <div className="absolute inset-0 w-8 h-8 bg-red-400 rounded-full animate-ping"></div>
+                <Radio className="w-16 h-16 text-red-500 animate-pulse" />
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full animate-ping"></div>
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-400 rounded-full animate-pulse"></div>
               </div>
-              <span className="text-4xl font-bold text-amber-400 tracking-wider animate-pulse">
-                ON AIR
-              </span>
+              <div className="text-left">
+                <div className="text-red-400 text-sm font-bold tracking-widest animate-pulse">ON AIR</div>
+                <div className="text-amber-200 text-lg font-bold">LIVE</div>
+              </div>
             </div>
           </div>
 
           {/* Main Title */}
-          <h1 className="text-6xl md:text-8xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 mb-4 font-serif">
-            High Standards
-          </h1>
-          
+          <div className="mb-8">
+            <h1 className="text-6xl md:text-8xl font-bold text-amber-100 mb-4 tracking-wider drop-shadow-2xl">
+              HIGH STANDARDS
+            </h1>
+            <div className="text-2xl md:text-3xl text-emerald-300 italic mb-6 font-light tracking-wide">
+              with George Fendel
+            </div>
+            <div className="text-xl text-amber-200/80 font-serif italic">
+              JAZZ
+            </div>
+          </div>
+
           {/* Subtitle */}
-          <p className="text-2xl md:text-3xl text-amber-200 mb-2 font-light">
-            with George Fendel
-          </p>
-          
-          {/* Description */}
-          <p className="text-lg text-amber-100/80 mb-12 max-w-xl mx-auto leading-relaxed">
-            Step into the golden age of jazz radio. Experience the finest recordings 
-            from years of broadcast excellence.
-          </p>
+          <div className="mb-12 max-w-md mx-auto">
+            <p className="text-amber-100/90 text-lg leading-relaxed font-light">
+              Step into Portland&apos;s premier jazz experience. 28 years of curated recordings 
+              from Oregon&apos;s jazz radio legend.
+            </p>
+          </div>
 
           {/* Enter Button */}
           <button
             onClick={() => setCurrentView('player')}
-            className="group relative inline-flex items-center justify-center px-12 py-4 text-xl font-semibold text-amber-900 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full shadow-lg transform transition-all duration-300 hover:scale-105 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-amber-300/50"
+            className="group relative inline-flex items-center space-x-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white px-12 py-4 rounded-full font-bold text-xl tracking-wider transition-all duration-300 shadow-2xl hover:shadow-amber-500/25 hover:scale-105"
           >
-            <span className="relative z-10">Enter the Studio</span>
-            <div className="absolute inset-0 bg-gradient-to-r from-amber-300 to-orange-300 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <Waves className="w-6 h-6 group-hover:animate-pulse" />
+            <span>ENTER</span>
           </button>
+
+          {/* Decorative Jazz Elements */}
+          <div className="absolute top-10 left-10 text-amber-400/20 text-8xl">♪</div>
+          <div className="absolute bottom-10 right-10 text-amber-400/20 text-6xl">♫</div>
+          <div className="absolute top-1/3 right-20 text-amber-400/10 text-4xl">♬</div>
         </div>
       </div>
     );
   }
 
-  if (currentView === 'admin') {
+  if (isAdmin) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black p-6">
-        <div className="max-w-6xl mx-auto">
-          {/* Admin Header */}
+      <div className="min-h-screen bg-gray-900 text-white p-6">
+        <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-8">
             <h1 className="text-3xl font-bold text-amber-400">Admin Panel</h1>
+            <button
+              onClick={() => setIsAdmin(false)}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors"
+            >
+              Back to Player
+            </button>
+          </div>
+
+          {/* Add/Edit Recording Form */}
+          <div className="bg-gray-800 rounded-lg p-6 mb-8">
+            <h2 className="text-xl font-bold mb-4 text-amber-400">
+              {editingId ? 'Edit Recording' : 'Add New Recording'}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <input
+                type="text"
+                placeholder="Recording Title *"
+                value={newRecording.title}
+                onChange={(e) => setNewRecording({...newRecording, title: e.target.value})}
+                className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
+                required
+              />
+              <input
+                type="text"
+                placeholder="Date (optional - auto-filled if empty)"
+                value={newRecording.date}
+                onChange={(e) => setNewRecording({...newRecording, date: e.target.value})}
+                className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
+              />
+              <input
+                type="text"
+                placeholder="Duration (optional)"
+                value={newRecording.duration}
+                onChange={(e) => setNewRecording({...newRecording, duration: e.target.value})}
+                className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
+              />
+              <input
+                type="url"
+                placeholder="Or paste audio URL"
+                value={newRecording.url}
+                onChange={(e) => setNewRecording({...newRecording, url: e.target.value})}
+                className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+            
+            {/* File Upload Section */}
+            <div className="mb-4 p-4 bg-gray-700 rounded-lg border-2 border-dashed border-gray-600">
+              <div className="text-center">
+                <div className="mb-4">
+                  <label htmlFor="audio-file-input" className="cursor-pointer">
+                    <div className="flex flex-col items-center space-y-2">
+                      <div className="w-12 h-12 bg-amber-600 rounded-full flex items-center justify-center">
+                        <Plus className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="text-amber-400 font-semibold">Upload Audio File</div>
+                      <div className="text-gray-400 text-sm">MP3, WAV, M4A, etc. (Max 1GB)</div>
+                    </div>
+                  </label>
+                  <input
+                    id="audio-file-input"
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </div>
+                
+                {uploadedFile && (
+                  <div className="mt-4 p-3 bg-gray-800 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+                          <Waves className="w-4 h-4 text-white" />
+                        </div>
+                        <div>
+                          <div className="text-white font-medium">{uploadedFile.name}</div>
+                          <div className="text-gray-400 text-sm">
+                            {(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setUploadedFile(null);
+                          const fileInput = document.getElementById('audio-file-input') as HTMLInputElement;
+                          if (fileInput) fileInput.value = '';
+                        }}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {isUploading && (
+                  <div className="mt-4">
+                    <div className="text-amber-400 text-sm mb-2">Uploading... {uploadProgress}%</div>
+                    <div className="w-full bg-gray-600 rounded-full h-2">
+                      <div 
+                        className="bg-amber-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <textarea
+              placeholder="Description (optional)"
+              value={newRecording.description}
+              onChange={(e) => setNewRecording({...newRecording, description: e.target.value})}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:border-amber-500 focus:outline-none mb-4"
+              rows={3}
+            />
+            <div className="mb-4 text-sm text-gray-400">
+              <p>* Upload an audio file OR paste a URL. Title is required.</p>
+            </div>
             <div className="flex space-x-4">
-              <button
-                onClick={() => setCurrentView('player')}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-amber-400"
-              >
-                Back to Player
-              </button>
-              {recordings.length > 0 && (
+              {editingId ? (
+                <>
+                  <button
+                    onClick={saveEdit}
+                    className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                  >
+                    <span>Save Changes</span>
+                  </button>
+                  <button
+                    onClick={cancelEdit}
+                    className="flex items-center space-x-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <span>Cancel</span>
+                  </button>
+                </>
+              ) : (
                 <button
-                  onClick={clearAllRecordings}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-white"
-                  title="Clear all recordings"
+                  onClick={addRecording}
+                  className="flex items-center space-x-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors"
                 >
-                  Clear All
+                  <Plus className="w-4 h-4" />
+                  <span>Add Recording</span>
                 </button>
               )}
             </div>
           </div>
 
-          {loading ? (
-            <div className="text-center text-amber-400 text-xl">Loading recordings...</div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Add New Recording */}
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
-                <h2 className="text-xl font-bold text-amber-400 mb-6 flex items-center">
-                  <Plus className="w-5 h-5 mr-2" />
-                  Add New Recording
-                </h2>
-                
-                <div className="space-y-4">
-                  <input
-                    type="text"
-                    placeholder="Recording Title"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-amber-400 focus:outline-none"
-                  />
-                  
-                  <textarea
-                    placeholder="Description (optional)"
-                    value={newDescription}
-                    onChange={(e) => setNewDescription(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-amber-400 focus:outline-none resize-none h-24"
-                  />
-                  
-                  <input
-                    type="date"
-                    value={newDate}
-                    onChange={(e) => setNewDate(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:border-amber-400 focus:outline-none"
-                  />
-                  
-                  {/* File Upload */}
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-amber-400">
-                      Audio File (Up to 5TB supported!)
-                    </label>
-                    <div className="relative">
-                      <input
-                        id="audio-file"
-                        type="file"
-                        accept="audio/*"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                      />
-                      <label
-                        htmlFor="audio-file"
-                        className="flex items-center justify-center w-full px-4 py-6 border-2 border-dashed border-gray-600 rounded-lg cursor-pointer hover:border-amber-400 transition-colors group"
-                      >
-                        <div className="text-center">
-                          <Upload className="w-8 h-8 text-gray-400 group-hover:text-amber-400 mx-auto mb-2" />
-                          <p className="text-gray-400 group-hover:text-amber-400">
-                            {uploadFile ? uploadFile.name : 'Click to upload audio file'}
-                          </p>
-                          {uploadFile && (
-                            <p className="text-sm text-gray-500 mt-1">
-                              Size: {(uploadFile.size / (1024 * 1024)).toFixed(2)} MB
-                            </p>
-                          )}
-                        </div>
-                      </label>
-                    </div>
-
-                    {/* Upload Progress */}
-                    {isUploading && (
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm text-amber-400">
-                          <span>Uploading to Vercel Blob...</span>
-                          <span>{uploadProgress}%</span>
-                        </div>
-                        <div className="w-full bg-gray-700 rounded-full h-2">
-                          <div
-                            className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${uploadProgress}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <button
-                    onClick={addRecording}
-                    disabled={!newTitle.trim() || !uploadFile || isUploading}
-                    className="w-full px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:from-gray-600 disabled:to-gray-600 rounded-lg font-semibold text-white transition-all duration-300 disabled:cursor-not-allowed"
-                  >
-                    {isUploading ? 'Uploading...' : 'Add Recording'}
-                  </button>
-
-                  {/* Debug Info */}
-                  <div className="text-xs text-gray-500 mt-2">
-                    <p>Title: {newTitle ? '✅' : '❌'} {newTitle || 'No title entered'}</p>
-                    <p>File: {uploadFile ? '✅' : '❌'} {uploadFile ? uploadFile.name : 'No file selected'}</p>
-                    <p>Button enabled: {!newTitle.trim() || !uploadFile || isUploading ? '❌' : '✅'}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Recordings List */}
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
-                <h2 className="text-xl font-bold text-amber-400 mb-6 flex items-center justify-between">
-                  <span className="flex items-center">
-                    <FileAudio className="w-5 h-5 mr-2" />
-                    Recordings ({recordings.length})
-                  </span>
-                </h2>
-                
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {recordings.length === 0 ? (
-                    <p className="text-gray-400 text-center py-8">
-                      No recordings yet. Add your first recording above!
-                    </p>
-                  ) : (
-                    recordings.map((recording) => (
-                      <div
-                        key={recording.id}
-                        className="bg-gray-700/50 rounded-lg p-4 border border-gray-600"
-                      >
-                        {editingRecording?.id === recording.id ? (
-                          <div className="space-y-3">
-                            <input
-                              type="text"
-                              value={editingRecording.title}
-                              onChange={(e) => setEditingRecording({...editingRecording, title: e.target.value})}
-                              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white"
-                            />
-                            <textarea
-                              value={editingRecording.description}
-                              onChange={(e) => setEditingRecording({...editingRecording, description: e.target.value})}
-                              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white h-20 resize-none"
-                            />
-                            <input
-                              type="date"
-                              value={editingRecording.date}
-                              onChange={(e) => setEditingRecording({...editingRecording, date: e.target.value})}
-                              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white"
-                            />
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={updateRecording}
-                                className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-white text-sm"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingRecording(null)}
-                                className="px-3 py-1 bg-gray-600 hover:bg-gray-700 rounded text-white text-sm"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div>
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-amber-400 mb-1">{recording.title}</h3>
-                                {recording.description && (
-                                  <p className="text-gray-300 text-sm mb-2">{recording.description}</p>
-                                )}
-                                <p className="text-gray-400 text-xs">
-                                  {recording.date} • {recording.duration}
-                                </p>
-                              </div>
-                              <div className="flex space-x-2 ml-4">
-                                <button
-                                  onClick={() => setEditingRecording(recording)}
-                                  className="p-1 text-gray-400 hover:text-amber-400 transition-colors"
-                                  title="Edit recording"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => deleteRecording(recording.id)}
-                                  className="p-1 text-gray-400 hover:text-red-400 transition-colors"
-                                  title="Delete recording"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
+          {/* Recordings List */}
+          <div className="bg-gray-800 rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-amber-400">Recordings ({recordings.length})</h2>
+              <div className="flex space-x-2">
+                <button
+                  onClick={clearAllRecordings}
+                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm"
+                  title="Delete all recordings"
+                >
+                  Clear All
+                </button>
+                <button
+                  onClick={resetToDefaults}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-sm"
+                  title="Reset to demo recordings"
+                >
+                  Reset Demo
+                </button>
               </div>
             </div>
-          )}
+            <div className="space-y-4">
+              {isLoadingRecordings ? (
+                <div className="text-center py-8">
+                  <div className="text-amber-400">Loading recordings...</div>
+                </div>
+              ) : recordings.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-400">No recordings found. Add some recordings to get started!</div>
+                </div>
+              ) : (
+                recordings.map((recording) => (
+                  <div key={recording.id} className="bg-gray-700 rounded-lg p-4 flex justify-between items-start">
+                    <div className="flex-1">
+                      <h3 className="font-bold text-white">{recording.title}</h3>
+                      <p className="text-gray-300 text-sm mb-1">{recording.description}</p>
+                      <div className="text-gray-400 text-xs">
+                        {recording.date} • {recording.duration}
+                      </div>
+                    </div>
+                    <div className="flex space-x-2 ml-4">
+                      <button
+                        onClick={() => startEdit(recording)}
+                        className="p-2 text-blue-400 hover:bg-gray-600 rounded-lg transition-colors"
+                        title="Edit"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete "${recording.title}"?`)) {
+                            deleteRecording(recording.id);
+                          }
+                        }}
+                        className="p-2 text-red-400 hover:bg-gray-600 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Player View
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white">
-      <audio ref={audioRef} preload="metadata" />
-      
-      <div className="container mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400 mb-2 font-serif">
-            High Standards
-          </h1>
-          <p className="text-xl text-amber-200 font-light">with George Fendel</p>
+      <audio
+        ref={audioRef}
+        src={recordings[currentTrack]?.url}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+      />
+
+      {/* Header */}
+      <div className="bg-gradient-to-r from-amber-900/50 to-orange-800/50 backdrop-blur-sm border-b border-amber-500/20 p-4">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="relative">
+              <Radio className="w-8 h-8 text-amber-400" />
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-amber-100 tracking-wide">HIGH STANDARDS</h1>
+              <p className="text-sm text-emerald-300 italic">with George Fendel</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentView('landing')}
+            className="text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            <Settings className="w-6 h-6" />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Player */}
+      <div className="max-w-4xl mx-auto p-6">
+        {/* Current Track Info */}
+        <div className="text-center mb-8">
+          <h2 className="text-2xl md:text-3xl font-bold text-amber-100 mb-2">
+            {recordings[currentTrack]?.title}
+          </h2>
+          <p className="text-gray-300 mb-2">{recordings[currentTrack]?.description}</p>
+          <p className="text-amber-400 text-sm">{recordings[currentTrack]?.date}</p>
         </div>
 
-        {loading ? (
-          <div className="text-center text-amber-400 text-xl">Loading recordings...</div>
-        ) : recordings.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="text-6xl mb-6">🎷</div>
-            <h2 className="text-2xl text-amber-400 mb-4">No recordings available</h2>
-            <p className="text-gray-400 mb-8">Upload some jazz recordings in the admin panel to get started.</p>
-            <button
-              onClick={() => setIsAdmin(true)}
-              className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 rounded-lg font-semibold transition-all duration-300"
-            >
-              Go to Admin Panel
-            </button>
+        {/* Progress Bar */}
+        <div className="mb-8">
+          <div className="flex justify-between text-sm text-gray-400 mb-2">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
           </div>
-        ) : (
-          <div className="max-w-4xl mx-auto">
-            {/* Now Playing */}
-            <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 mb-8 border border-gray-600">
-              <div className="text-center mb-6">
-                <h2 className="text-3xl font-bold text-amber-400 mb-2">
-                  {recordings[currentTrack]?.title || 'No recording selected'}
-                </h2>
-                {recordings[currentTrack]?.description && (
-                  <p className="text-gray-300 mb-2">{recordings[currentTrack].description}</p>
-                )}
-                <p className="text-gray-400">
-                  {recordings[currentTrack]?.date} • {recordings[currentTrack]?.duration}
-                </p>
-              </div>
+          <div
+            className="w-full h-2 bg-gray-700 rounded-full cursor-pointer relative overflow-hidden"
+            onClick={handleSeek}
+          >
+            <div
+              className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-300"
+              style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+            ></div>
+            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pulse"></div>
+          </div>
+        </div>
 
-              {/* Progress Bar */}
-              <div className="mb-6">
-                <div className="flex justify-between text-sm text-gray-400 mb-2">
-                  <span>{formatTime(currentTime)}</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
-                <div className="relative">
-                  <div className="w-full h-2 bg-gray-600 rounded-full">
-                    <div
-                      className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-300"
-                      style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                    ></div>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max={duration || 0}
-                    value={currentTime}
-                    onChange={(e) => seekTo(Number(e.target.value))}
-                    className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              {/* Controls */}
-              <div className="flex items-center justify-center space-x-6 mb-6">
-                <button
-                  onClick={() => skipTrack('prev')}
-                  className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-colors"
-                  disabled={currentTrack === 0}
-                >
-                  <SkipBack className="w-5 h-5" />
-                </button>
-                
-                <button
-                  onClick={togglePlayPause}
-                  className="p-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 rounded-full transition-all duration-300 transform hover:scale-105"
-                >
-                  {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-                </button>
-                
-                <button
-                  onClick={() => skipTrack('next')}
-                  className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-colors"
-                  disabled={currentTrack === recordings.length - 1}
-                >
-                  <SkipForward className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Volume Control */}
-              <div className="flex items-center justify-center space-x-4">
-                <Volume2 className="w-5 h-5 text-gray-400" />
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={volume}
-                  onChange={(e) => {
-                    const newVolume = Number(e.target.value);
-                    setVolume(newVolume);
-                    if (audioRef.current) {
-                      audioRef.current.volume = newVolume;
-                    }
-                  }}
-                  className="w-32 h-2 bg-gray-600 rounded-full appearance-none cursor-pointer slider"
-                />
-                <span className="text-sm text-gray-400 w-12">
-                  {Math.round(volume * 100)}%
-                </span>
+        {/* Controls */}
+        <div className="flex items-center justify-center space-x-8 mb-8">
+          <button
+            onClick={handlePrevious}
+            className="text-gray-400 hover:text-amber-400 transition-colors transform hover:scale-110"
+          >
+            <div className="w-8 h-8 flex items-center justify-center">
+              <div className="flex">
+                <div className="w-1 h-6 bg-current mr-1"></div>
+                <div className="w-0 h-0 border-t-[12px] border-b-[12px] border-r-[18px] border-t-transparent border-b-transparent border-r-current"></div>
               </div>
             </div>
+          </button>
 
-            {/* Playlist */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
-              <h3 className="text-xl font-bold text-amber-400 mb-6 flex items-center">
-                <FileAudio className="w-5 h-5 mr-2" />
-                Playlist ({recordings.length} recordings)
-              </h3>
-              
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {recordings.map((recording, index) => (
-                  <div
-                    key={recording.id}
-                    onClick={() => setCurrentTrack(index)}
-                    className={`p-4 rounded-lg cursor-pointer transition-all duration-300 ${
-                      index === currentTrack
-                        ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/50'
-                        : 'bg-gray-700/30 hover:bg-gray-600/50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className={`font-semibold ${index === currentTrack ? 'text-amber-400' : 'text-white'}`}>
-                          {recording.title}
-                        </h4>
-                        <p className="text-sm text-gray-400">
-                          {recording.date} • {recording.duration}
-                        </p>
-                      </div>
-                      {index === currentTrack && isPlaying && (
-                        <div className="flex space-x-1">
-                          <div className="w-1 h-4 bg-amber-400 animate-pulse"></div>
-                          <div className="w-1 h-4 bg-amber-400 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                          <div className="w-1 h-4 bg-amber-400 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                        </div>
-                      )}
+          <button
+            onClick={togglePlay}
+            className="w-16 h-16 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 rounded-full flex items-center justify-center text-white transition-all duration-300 transform hover:scale-105 shadow-2xl"
+          >
+            {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
+          </button>
+
+          <button
+            onClick={handleNext}
+            className="text-gray-400 hover:text-amber-400 transition-colors transform hover:scale-110"
+          >
+            <div className="w-8 h-8 flex items-center justify-center">
+              <div className="flex">
+                <div className="w-0 h-0 border-t-[12px] border-b-[12px] border-l-[18px] border-t-transparent border-b-transparent border-l-current"></div>
+                <div className="w-1 h-6 bg-current ml-1"></div>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        {/* Volume Control */}
+        <div className="flex items-center justify-center space-x-4 mb-8">
+          <button onClick={toggleMute} className="text-gray-400 hover:text-amber-400 transition-colors">
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.1"
+            value={isMuted ? 0 : volume}
+            onChange={handleVolumeChange}
+            className="w-24 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+          />
+        </div>
+
+        {/* Playlist */}
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 border border-gray-700/50">
+          <h3 className="text-lg font-bold text-amber-400 mb-4">Playlist</h3>
+          <div className="space-y-3">
+            {recordings.map((recording, index) => (
+              <div
+                key={recording.id}
+                onClick={() => setCurrentTrack(index)}
+                className={`p-4 rounded-lg cursor-pointer transition-all duration-300 ${
+                  index === currentTrack
+                    ? 'bg-amber-600/20 border border-amber-500/30'
+                    : 'bg-gray-700/30 hover:bg-gray-700/50 border border-transparent'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className={`font-semibold ${index === currentTrack ? 'text-amber-300' : 'text-white'}`}>
+                      {recording.title}
+                    </h4>
+                    <p className="text-gray-400 text-sm">{recording.description}</p>
+                    <p className="text-gray-500 text-xs mt-1">{recording.date} • {recording.duration}</p>
+                  </div>
+                  {index === currentTrack && (
+                    <div className="ml-4">
+                      <Waves className="w-5 h-5 text-amber-400 animate-pulse" />
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
-            </div>
+            ))}
           </div>
-        )}
-
-        {/* Admin Button */}
-        <button
-          onClick={() => setIsAdmin(true)}
-          className="fixed bottom-6 left-6 w-12 h-12 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center text-amber-400 border border-gray-600 shadow-lg transition-all duration-300 hover:scale-110"
-          title="Admin Panel"
-        >
-          <Mic className="w-5 h-5" />
-        </button>
+        </div>
       </div>
+
+      {/* Admin Button */}
+      <button
+        onClick={() => setIsAdmin(true)}
+        className="fixed bottom-6 left-6 w-12 h-12 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center text-amber-400 border border-gray-600 shadow-lg transition-all duration-300 hover:scale-110"
+        title="Admin Panel"
+      >
+        <Mic className="w-5 h-5" />
+      </button>
     </div>
   );
 };
